@@ -13,15 +13,15 @@ def plot_audio_file(file_path, sr=22050):
 
     # Create a time variable for plotting
     time = np.linspace(0, len(y) / sr, len(y))
+    spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
 
-    # Plot the waveform
-    plt.figure(figsize=(12, 4))
-    plt.plot(time, y)
-    plt.title('Waveform of Audio File of Actor 01')
-    plt.xlim(0, time[-1])
-    plt.xlabel('Time (s)')
-    plt.ylabel('Amplitude')
-    plt.grid()
+    # Plot the spectrogram
+    plt.figure(figsize=(10, 4))
+    librosa.display.specshow(librosa.power_to_db(spectrogram, ref=np.max), y_axis='mel', x_axis='time', sr=sr, fmax=8000)
+    plt.colorbar(format='%+2.0f dB')
+    plt.xlabel('Time')
+    plt.ylabel('Mel frequency')
+    plt.title('Spectrogram')
     plt.show()
 
 if __name__ == "__main__":
