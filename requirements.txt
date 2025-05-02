@@ -1,0 +1,4 @@
+kagglehub
+matplotlib
+librosa
+numpy
