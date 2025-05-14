@@ -19,7 +19,36 @@ class AudioPreprocessor:
         self.data_augmenter = data_augmenter
         self.use_spectrograms = use_spectrograms
 
-    def process_single_file(self, file_path):
+    def process_all(
+        self, file_paths: list[str]
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Load and preprocess the audio data and extract labels.
+
+        Args:
+            file_paths (list[str]): A list of file paths towards the audio
+                data. The ends should be in the following format where, in
+                03-01-01-01-01-01-01.wav, the third number indicates the
+                emotion and the fourth one the intensity.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray, np.ndarray]: The processed data in
+            either raw or spectrogram form followed by the corresponding
+            labels and intensities.
+        """
+        processed_data = []
+        emotion_labels = []
+        intensity_labels = []
+        for fp in file_paths:
+            data, emotion, intensity = self.process_single_file(fp)
+            if data is not None:
+                processed_data.append(data)
+                emotion_labels.append(emotion)
+                intensity_labels.append(intensity)
+        return (np.array(processed_data),
+                np.array(emotion_labels),
+                np.array(intensity_labels))
+
+    def _process_single_file(self, file_path):
         raw_audio = self._load_audio(file_path)
         emotion, intensity = self._extract_label_intensity(file_path)
 
@@ -39,11 +68,6 @@ class AudioPreprocessor:
             augmented_raw_audio
         )
         return length_standardized_audio, emotion, intensity
-
-    def process_all(self, file_paths: str) -> np.ndarray:
-        processed_data = [self.process_single(fp) for fp in file_paths]
-        # Filter out any None results if spectrogram processing failed
-        return np.array([item for item in processed_data if item is not None])
 
     def _load_audio(self, file_path: str) -> np.ndarray:
         """
