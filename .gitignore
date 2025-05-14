@@ -3,5 +3,5 @@ Pipfile.lock
 __pycache__/
 .DS_Store
 .conda
-# name of folder for data
+# name of folder for data in project_name/data
 uwrfkaggler/
