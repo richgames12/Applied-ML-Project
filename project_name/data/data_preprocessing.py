@@ -39,7 +39,7 @@ class AudioPreprocessor:
         emotion_labels = []
         intensity_labels = []
         for fp in file_paths:
-            data, emotion, intensity = self.process_single_file(fp)
+            data, emotion, intensity = self._process_single_file(fp)
             if data is not None:
                 processed_data.append(data)
                 emotion_labels.append(emotion)
