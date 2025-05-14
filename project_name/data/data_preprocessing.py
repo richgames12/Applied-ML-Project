@@ -9,8 +9,6 @@ class AudioPreprocessor:
             self,
             sampling_rate: int = 22050,
             target_length: int = 66150,
-            # TODO: When using a CNN we should also include the option to
-            # select a different data augmenter for spectrograms
             data_augmenter: RawAudioAugmenter | None = None,
             use_spectrograms: bool = False
     ) -> None:
@@ -61,20 +59,20 @@ class AudioPreprocessor:
                 np.array(emotion_labels),
                 np.array(intensity_labels))
 
-    def _process_single_file(self, file_path):
+    def _process_single_file(
+            self, file_path: str
+    ) -> tuple[np.ndarray, int, int]:
+        """Load and preprocess the audio and extract the labels.
+
+        Args:
+            file_path (str): The path to where the audio file is stored.
+
+        Returns:
+            tuple[np.ndarray, int, int]: The preprocessed audio followed by
+                the corresponding emotion and intensity labels.
+        """
         raw_audio = self._load_audio(file_path)
         emotion, intensity = self._extract_label_intensity(file_path)
-
-        if self.use_spectrograms:
-            # Process the spectograms
-            spectrogram = self._get_spectogram(raw_audio)
-            if spectrogram is not None:
-                augmented_spectogram = self._augment_data(spectrogram)
-                return self._standardize_spectrogram_length(
-                    augmented_spectogram, emotion, intensity
-                )
-            return None, None, None
-
         # Process the raw data
         augmented_raw_audio = self._augment_data(raw_audio)
         length_standardized_audio = self._standardize_raw_length(
@@ -148,20 +146,9 @@ class AudioPreprocessor:
         """
         filename = os.path.basename(file_path)
         parts = filename.split("-")[2]
-        if len(parts) > 3:
-            return parts[2], parts[3]
-        raise ValueError(
-            "Cannot extract emotion and intensity from the following ",
-            f"filename: {filename}."
-        )
-
-    def _get_spectogram(self, audio: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("Get spectrograms is still in progress.")
-
-    def _augment_spectogram(self, spectrogram: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("Augment spectrogram is still in progress.")
-
-    def _standardize_spectrogram_length(
-            self, spectrogram: np.ndarray
-    ) -> np.ndarray:
-        raise NotImplementedError("Standardize is still in progress.")
+        if len(parts) <= 3:
+            raise ValueError(
+                "Cannot extract emotion and intensity from the following ",
+                f"filename: {filename}."
+            )
+        return parts[2], parts[3]
