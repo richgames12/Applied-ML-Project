@@ -1,5 +1,6 @@
 kagglehub
 matplotlib
 librosa
-numpy
+numpy==1.26.4
 scikit-learn
+audiomentation
