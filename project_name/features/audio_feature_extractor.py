@@ -61,7 +61,7 @@ class AudioFeatureExtractor:
                 delta_mfccs = delta(mfccs)
                 combined = np.vstack([mfccs, delta_mfccs])
             else:
-                combined = mfcc
+                combined = mfccs
 
             return combined.mean(axis=1)
 
