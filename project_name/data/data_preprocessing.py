@@ -14,6 +14,19 @@ class AudioPreprocessor:
             data_augmenter: RawAudioAugmenter | None = None,
             use_spectrograms: bool = False
     ) -> None:
+        """Initialize the audio preprocessor.
+
+        Args:
+            sampling_rate (int, optional): The sampling rate of the audio data.
+                Defaults to 22050.
+            target_length (int, optional): How long the audio data should be.
+                Defaults to (3*22050 = 66150).
+            data_augmenter (RawAudioAugmenter | None, optional): The augmenter
+                that is to be used. If no augmenter is specified, there will be
+                no augmentation. Defaults to None.
+            use_spectrograms (bool, optional): Whether the preprocessor should
+                use spectrograms or raw data. Defaults to False.
+        """
         self.sampling_rate = sampling_rate
         self.target_length = target_length
         self.data_augmenter = data_augmenter
