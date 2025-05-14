@@ -2,4 +2,4 @@ kagglehub
 matplotlib
 librosa
 numpy
-sklearn
+scikit-learn
