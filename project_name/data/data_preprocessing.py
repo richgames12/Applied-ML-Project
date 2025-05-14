@@ -1,3 +1,4 @@
+import os
 import librosa
 import numpy as np
 from data.data_augmentation import RawAudioAugmenter
@@ -20,6 +21,7 @@ class AudioPreprocessor:
 
     def process_single_file(self, file_path):
         raw_audio = self._load_audio(file_path)
+        emotion, intensity = self._extract_label_intensity(file_path)
 
         if self.use_spectrograms:
             # Process the spectograms
@@ -27,16 +29,21 @@ class AudioPreprocessor:
             if spectrogram is not None:
                 augmented_spectogram = self._augment_data(spectrogram)
                 return self._standardize_spectrogram_length(
-                    augmented_spectogram
+                    augmented_spectogram, emotion, intensity
                 )
-            return None
+            return None, None, None
 
         # Process the raw data
         augmented_raw_audio = self._augment_data(raw_audio)
-        return self._standardize_raw_length(augmented_raw_audio)
+        length_standardized_audio = self._standardize_raw_length(
+            augmented_raw_audio
+        )
+        return length_standardized_audio, emotion, intensity
 
-    def process_all_files(self, file_paths):
-        pass
+    def process_all(self, file_paths: str) -> np.ndarray:
+        processed_data = [self.process_single(fp) for fp in file_paths]
+        # Filter out any None results if spectrogram processing failed
+        return np.array([item for item in processed_data if item is not None])
 
     def _load_audio(self, file_path: str) -> np.ndarray:
         """
@@ -86,6 +93,30 @@ class AudioPreprocessor:
             return audio[:self.target_length]
         # The audio is exactly the right length
         return audio
+
+    def _extract_label_intensity(self, file_path: str) -> tuple[str, str]:
+        """Extract the emotion label and the intensity from the file path.
+
+        Expects the files to follow the following naming convention where,
+        for example, in 03-01-01-01-01-01-01.wav the third number represents
+        the label and the fourth one the intensity.
+        (Expecting 8 different emotions and 2 different intensities)
+
+        Args:
+            file_path (str): The file path towards the audio file.
+            should end with the following format: 03-01-01-01-01-01-01.wav.
+
+        Returns:
+            tuple[str, str]: The emotion label and the intensity.
+        """
+        filename = os.path.basename(file_path)
+        parts = filename.split("-")[2]
+        if len(parts) > 3:
+            return parts[2], parts[3]
+        raise ValueError(
+            "Cannot extract emotion and intensity from the following ",
+            f"filename: {filename}."
+        )
 
     def _get_spectogram(self, audio: np.ndarray) -> np.ndarray:
         raise NotImplementedError("Get spectrograms is still in progress.")
