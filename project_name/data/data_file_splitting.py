@@ -82,9 +82,15 @@ class DataFileSplitter:
         for root, _, files in os.walk(self.dataset_path):
             for file in tqdm(files, desc="Collecting .wav files"):
                 if file.endswith(".wav"):
-                    full_path = os.path.join(root, file)
-                    self.audio_paths.append(full_path)
-                    self._extract_label_intensity(full_path)
+                    try:
+                        full_path = os.path.join(root, file)
+                        self.audio_paths.append(full_path)
+                        self._extract_label_intensity(full_path)
+                    except Exception as e:
+                        print(
+                            f"Warning: Skipping file '{file}' due to error: ",
+                            f"{e}"
+                        )
 
     def _extract_label_intensity(self, file_path: str) -> None:
         """Extract the emotion label and the intensity from the file path.
