@@ -1,6 +1,7 @@
 import os
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
+from copy import deepcopy
 
 
 class DataFileSplitter:
@@ -27,35 +28,35 @@ class DataFileSplitter:
             seed (int, optional): Random seed for reproducibility. Defaults
                 to 1.
         """
-        self.dataset_path = dataset_path
+        self._dataset_path = dataset_path
         self.test_size = test_size
         self.eval_size = eval_size
         self.seed = seed
 
-        self.audio_paths = []  # list[str]
-        self.labels = []  # list[tuple[int, int]]
+        self._audio_paths = []  # list[str]
+        self._labels = []  # list[tuple[int, int]]
 
-        self.train_set = None  # list[tuple[str, tuple[int, int]]] | None
-        self.val_set = None  # list[tuple[str, tuple[int, int]]] | None
-        self.test_set = None  # list[tuple[str, tuple[int, int]]] | None
+        self._train_set = None  # list[tuple[str, tuple[int, int]]] | None
+        self._val_set = None  # list[tuple[str, tuple[int, int]]] | None
+        self._test_set = None  # list[tuple[str, tuple[int, int]]] | None
 
         self._collect_files_labels()  # Collect files and labels at the start
 
-    def get_all(self) -> list[tuple[str, tuple[int, int]]]:
-        """Return all data without splitting.
+    def get_data_all_copy(self) -> list[tuple[str, tuple[int, int]]]:
+        """Return a deepcopy of all data without splitting.
 
         Returns:
             list[ tuple[str, tuple[int, int]] ]: The paths to the audio files
                 and their emotion and intensity labels.
         """
-        return self.audio_paths, self.labels
+        return deepcopy(list(zip(self._audio_paths, self._labels)))
 
-    def get_splits(self) -> tuple[
+    def get_data_splits_copy(self) -> tuple[
         list[tuple[str, tuple[int, int]]],
         list[tuple[str, tuple[int, int]]],
         list[tuple[str, tuple[int, int]]]
     ]:
-        """Return the data in training/validation/testing sets.
+        """Return a deepcopy of the data in training/validation/testing sets.
 
         Returns:
             tuple[ list[tuple[str, tuple[int, int]]],
@@ -70,21 +71,25 @@ class DataFileSplitter:
                 - emotion_label (int): Encoded emotion label.
                 - intensity_label (int): Encoded intensity label.
         """
-        if not self.train_set:
+        if not self._train_set:
             self._split()
-        return self.train_set, self.val_set, self.test_set
+        return (
+            deepcopy(self._train_set),
+            deepcopy(self._val_set),
+            deepcopy(self._test_set)
+        )
 
     def _collect_files_labels(self) -> None:
         """Collect all files and corresponding labels in self.dataset_path."""
-        if self.audio_paths:  # Already collected
+        if self._audio_paths:  # Already collected
             return
 
-        for root, _, files in os.walk(self.dataset_path):
+        for root, _, files in os.walk(self._dataset_path):
             for file in tqdm(files, desc="Collecting .wav files"):
                 if file.endswith(".wav"):
                     try:
                         full_path = os.path.join(root, file)
-                        self.audio_paths.append(full_path)
+                        self._audio_paths.append(full_path)
                         self._extract_label_intensity(full_path)
                     except Exception as e:
                         print(
@@ -112,15 +117,15 @@ class DataFileSplitter:
                 "Cannot extract emotion and intensity from the following ",
                 f"filename: {filename}."
             )
-        self.labels.append((int(parts[2]), int(parts[3])))
+        self._labels.append((int(parts[2]), int(parts[3])))
 
     def _split(self) -> None:
         """Split the data into training/validation/testing sets."""
         # First split into train and temp (val + test)
         train_paths, temp_paths, train_labels, temp_labels = train_test_split(
-            self.audio_paths, self.labels,
+            self._audio_paths, self._labels,
             test_size=self.test_size + self.eval_size,
-            stratify=self.labels,
+            stratify=self._labels,
             random_state=self.seed
         )
 
@@ -133,6 +138,6 @@ class DataFileSplitter:
             random_state=self.seed
         )
 
-        self.train_set = list(zip(train_paths, train_labels))
-        self.val_set = list(zip(val_paths, val_labels))
-        self.test_set = list(zip(test_paths, test_labels))
+        self._train_set = list(zip(train_paths, train_labels))
+        self._val_set = list(zip(val_paths, val_labels))
+        self._test_set = list(zip(test_paths, test_labels))
