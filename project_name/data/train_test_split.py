@@ -1,38 +1,85 @@
 import os
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 
-class trainTestSplit:
+class DataLoaderSplitter:
+    """
+    Extract .wav files from dataset_path together with their label and split
+    them into train/validation/test groups.
+    """
+    def __init__(
+            self,
+            dataset_path: str,
+            test_size: float = 0.10,
+            eval_size: float = 0.10,
+            seed: int = 1
+    ) -> None:
+        """
+        Initialize the dataloadersplitter class.
 
-    def __init__(self, dataset_path, test_size=0.15, eval_size=0.15, seed=1) -> None:  # using seed ensures the same split for reproducibility
+        Args:
+            dataset_path (str): Root path to dataset with .wav files.
+            test_size (float, optional): Proportion of data to reserve for
+                test set. Defaults to 0.10.
+            eval_size (float, optional): Proportion of data to reserve for
+                validation set. Defaults to 0.10.
+            seed (int, optional): Random seed for reproducibility. Defaults
+                to 1.
+        """
         self.dataset_path = dataset_path
         self.test_size = test_size
         self.eval_size = eval_size
         self.seed = seed
-        self.audio_paths = []
-        self.labels = []
-        self.train_set = []
-        self.val_set = []
-        self.test_set = []
 
-    def get_splits(self):
+        self.audio_paths = []  # list[str]
+        self.labels = []  # list[tuple[int, int]]
+
+        self.train_set = None  # list[tuple[str, tuple[int, int]]] | None
+        self.val_set = None  # list[tuple[str, tuple[int, int]]] | None
+        self.test_set = None  # list[tuple[str, tuple[int, int]]] | None
+
+    def get_splits(self) -> tuple[
+        list[tuple[str, tuple[int, int]]],
+        list[tuple[str, tuple[int, int]]],
+        list[tuple[str, tuple[int, int]]]
+    ]:
         if not self.train_set:
             self._split()
         return self.train_set, self.val_set, self.test_set
 
-    def _extract_labels(self, filename):     # example filename: 01-01-01-01-01-01.wav
-        return int(filename.split("-")[2])  # boilerplate code, should be changed later
-
-    def _collect_files(self):        # copied from svm in jesses branch
+    def collect_files(self) -> None:
         for root, _, files in os.walk(self.dataset_path):
-            for file in files:
+            for file in tqdm(files, desc="Collecting .wav files"):
                 if file.endswith(".wav"):
                     full_path = os.path.join(root, file)
                     self.audio_paths.append(full_path)
-                    self.labels.append(self._extract_labels(file))
+                    self._extract_label_intensity(full_path)
 
-    def _split(self):
-        self._collect_files()
+    def _extract_label_intensity(self, file_path: str) -> None:
+        """Extract the emotion label and the intensity from the file path.
+
+        Expects the files to follow the following naming convention where,
+        for example, in 03-01-01-01-01-01-01.wav the third number represents
+        the label and the fourth one the intensity.
+        (Expecting 8 different emotions and 2 different intensities)
+        Updates self.labels directly.
+
+        Args:
+            file_path (str): The file path towards the audio file.
+                Should end with the following format: 03-01-01-01-01-01-01.wav.
+        """
+        filename = os.path.basename(file_path)
+        parts = filename.split("-")
+        if len(parts) <= 3:
+            raise ValueError(
+                "Cannot extract emotion and intensity from the following ",
+                f"filename: {filename}."
+            )
+        self.labels.append(parts[2], parts[3])
+
+    def _split(self) -> None:
+        self.collect_files()
 
         # First split into train and temp (val + test)
         train_paths, temp_paths, train_labels, temp_labels = train_test_split(
