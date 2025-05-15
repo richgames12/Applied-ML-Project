@@ -1,6 +1,5 @@
 import os
 from sklearn.model_selection import train_test_split
-from tqdm import tqdm
 from copy import deepcopy
 
 
@@ -85,7 +84,7 @@ class DataFileSplitter:
             return
 
         for root, _, files in os.walk(self._dataset_path):
-            for file in tqdm(files, desc="Collecting .wav files"):
+            for file in files:
                 if file.endswith(".wav"):
                     try:
                         full_path = os.path.join(root, file)
@@ -96,6 +95,7 @@ class DataFileSplitter:
                             f"Warning: Skipping file '{file}' due to error: ",
                             f"{e}"
                         )
+        print(f"Collected {len(self._audio_paths)} unique files.")
 
     def _extract_label_intensity(self, file_path: str) -> None:
         """Extract the emotion label and the intensity from the file path.
