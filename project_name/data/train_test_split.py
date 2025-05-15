@@ -3,7 +3,7 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 
-class DataLoaderSplitter:
+class DataFileSplitter:
     """
     Extract .wav files from dataset_path together with their label and split
     them into train/validation/test groups.
@@ -39,17 +39,28 @@ class DataLoaderSplitter:
         self.val_set = None  # list[tuple[str, tuple[int, int]]] | None
         self.test_set = None  # list[tuple[str, tuple[int, int]]] | None
 
+        self._collect_files_labels()  # Collect files and labels at the start
+
+    def get_all(self) -> list[tuple[str, tuple[int, int]]]:
+        """Return all data without splitting.
+
+        Returns:
+            list[ tuple[str, tuple[int, int]] ]: The paths to the audio files
+                and their emotion and intensity labels.
+        """
+        return self.audio_paths, self.labels
+
     def get_splits(self) -> tuple[
         list[tuple[str, tuple[int, int]]],
         list[tuple[str, tuple[int, int]]],
         list[tuple[str, tuple[int, int]]]
     ]:
-        """Split the data into training/validation/testing sets.
+        """Return the data in training/validation/testing sets.
 
         Returns:
-            tuple[list[tuple[str, tuple[int, int]]],
+            tuple[ list[tuple[str, tuple[int, int]]],
                   list[tuple[str, tuple[int, int]]],
-                  list[tuple[str, tuple[int, int]]]]:
+                  list[tuple[str, tuple[int, int]]] ]:
                 A tuple containing the training, validation, and test sets.
 
                 Each set is a list of samples, where each sample is a tuple:
@@ -63,8 +74,11 @@ class DataLoaderSplitter:
             self._split()
         return self.train_set, self.val_set, self.test_set
 
-    def collect_files_labels(self) -> None:
+    def _collect_files_labels(self) -> None:
         """Collect all files and corresponding labels in self.dataset_path."""
+        if self.audio_paths:  # Already collected
+            return
+
         for root, _, files in os.walk(self.dataset_path):
             for file in tqdm(files, desc="Collecting .wav files"):
                 if file.endswith(".wav"):
@@ -92,11 +106,10 @@ class DataLoaderSplitter:
                 "Cannot extract emotion and intensity from the following ",
                 f"filename: {filename}."
             )
-        self.labels.append(parts[2], parts[3])
+        self.labels.append((int(parts[2]), int(parts[3])))
 
     def _split(self) -> None:
-        self.collect_files()
-
+        """Split the data into training/validation/testing sets."""
         # First split into train and temp (val + test)
         train_paths, temp_paths, train_labels, temp_labels = train_test_split(
             self.audio_paths, self.labels,
