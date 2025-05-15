@@ -44,11 +44,27 @@ class DataLoaderSplitter:
         list[tuple[str, tuple[int, int]]],
         list[tuple[str, tuple[int, int]]]
     ]:
+        """Split the data into training/validation/testing sets.
+
+        Returns:
+            tuple[list[tuple[str, tuple[int, int]]],
+                  list[tuple[str, tuple[int, int]]],
+                  list[tuple[str, tuple[int, int]]]]:
+                A tuple containing the training, validation, and test sets.
+
+                Each set is a list of samples, where each sample is a tuple:
+                (filepath, (emotion_label, intensity_label)).
+
+                - filepath (str): Path to the .wav audio file.
+                - emotion_label (int): Encoded emotion label.
+                - intensity_label (int): Encoded intensity label.
+        """
         if not self.train_set:
             self._split()
         return self.train_set, self.val_set, self.test_set
 
-    def collect_files(self) -> None:
+    def collect_files_labels(self) -> None:
+        """Collect all files and corresponding labels in self.dataset_path."""
         for root, _, files in os.walk(self.dataset_path):
             for file in tqdm(files, desc="Collecting .wav files"):
                 if file.endswith(".wav"):
@@ -62,12 +78,12 @@ class DataLoaderSplitter:
         Expects the files to follow the following naming convention where,
         for example, in 03-01-01-01-01-01-01.wav the third number represents
         the label and the fourth one the intensity.
-        (Expecting 8 different emotions and 2 different intensities)
+        (Expecting 8 different emotions and 2 different intensities).
         Updates self.labels directly.
 
         Args:
             file_path (str): The file path towards the audio file.
-                Should end with the following format: 03-01-01-01-01-01-01.wav.
+                Should end with the following format: 01-01-01-01-01-01-01.wav.
         """
         filename = os.path.basename(file_path)
         parts = filename.split("-")
