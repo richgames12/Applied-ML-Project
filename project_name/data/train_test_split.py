@@ -11,6 +11,7 @@ class trainTestSplit:
         self.seed = seed
         self.audio_paths = []
         self.labels = []
+        self.train_set = []
         self.val_set = []
         self.test_set = []
 
@@ -20,7 +21,7 @@ class trainTestSplit:
         return self.train_set, self.val_set, self.test_set
 
     def _extract_labels(self, filename):     # example filename: 01-01-01-01-01-01.wav
-        return int(filename._split("-")[2])  # boilerplate code, should be changed later
+        return int(filename.split("-")[2])  # boilerplate code, should be changed later
 
     def _collect_files(self):        # copied from svm in jesses branch
         for root, _, files in os.walk(self.dataset_path):
@@ -28,7 +29,7 @@ class trainTestSplit:
                 if file.endswith(".wav"):
                     full_path = os.path.join(root, file)
                     self.audio_paths.append(full_path)
-                    self.labels.append(self._extract_labels)    
+                    self.labels.append(self._extract_labels(file))
 
     def _split(self):
         self._collect_files()
