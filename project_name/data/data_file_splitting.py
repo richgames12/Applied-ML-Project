@@ -42,7 +42,8 @@ class DataFileSplitter:
         self._collect_files_labels()  # Collect files and labels at the start
 
     def get_data_all_copy(self) -> list[tuple[str, tuple[int, int]]]:
-        """Return a deepcopy of all data without splitting.
+        """
+        Return a deepcopy of all data without splitting.
 
         Returns:
             list[ tuple[str, tuple[int, int]] ]: The paths to the audio files
@@ -55,7 +56,8 @@ class DataFileSplitter:
         list[tuple[str, tuple[int, int]]],
         list[tuple[str, tuple[int, int]]]
     ]:
-        """Return a deepcopy of the data in training/validation/testing sets.
+        """
+        Return a deepcopy of the data in training/validation/testing sets.
 
         Returns:
             tuple[ list[tuple[str, tuple[int, int]]],
@@ -93,7 +95,7 @@ class DataFileSplitter:
                     except Exception as e:
                         print(
                             f"Warning: Skipping file '{file}' due to error: ",
-                            f"{e}"
+                            f"{e}."
                         )
         print(f"Collected {len(self._audio_paths)} unique files.")
 
