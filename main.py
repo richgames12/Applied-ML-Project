@@ -19,11 +19,11 @@ if __name__ == "__main__":
     train_data, val_data, test_data = splitter.get_data_splits_copy()
 
     # Initialize the raw audio augmenter
-    augmenter = RawAudioAugmenter()
+    augmenter = RawAudioAugmenter(pitch_probability=0)
 
     # Initialize the audio preprocessor
     preprocessor = AudioPreprocessor(
-        data_augmenter=augmenter, n_augmentations=1
+        data_augmenter=augmenter, n_augmentations=2
     )
 
     # Process the training data
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     print("Training data processed.")
 
     # Initialize the audio feature extractor
-    feature_extractor = AudioFeatureExtractor(use_deltas=False)
+    feature_extractor = AudioFeatureExtractor(use_deltas=True, n_mfcc=20)
 
     # Extract features from the processed training data
     train_features = feature_extractor.extract_features_all(train_processed)
