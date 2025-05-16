@@ -35,7 +35,25 @@ class AudioFeatureExtractor:
         self.hop_length = hop_length
         self.use_deltas = use_deltas
 
-    def extract_features(self, audio_data: np.ndarray) -> np.ndarray:
+    def extract_features_all(self, all_audio: np.ndarray) -> np.ndarray:
+        """Extract features from a collection of audio data.
+
+        Args:
+            all_audio (np.ndarray): A NumPy array where each row represents
+                an individual audio waveform.
+
+        Returns:
+            np.ndarray: The extracted audio features (n_samples, features).
+                Failed extractions are excluded.
+        """
+        features = []
+        for audio in all_audio:
+            feature = self._extract_features(audio)
+            if feature is not None:  # Extraction was succesful
+                features.append(feature)
+        return np.array(features)
+
+    def _extract_features(self, audio_data: np.ndarray) -> np.ndarray:
         """
         Extract the audio features from a single audio file.
 

@@ -1,6 +1,7 @@
 import librosa
 import numpy as np
-from data.data_augmentation import RawAudioAugmenter
+from project_name.data.data_augmentation import RawAudioAugmenter
+from tqdm import tqdm
 
 
 class AudioPreprocessor:
@@ -46,7 +47,8 @@ class AudioPreprocessor:
         processed_data = []
         emotion_labels = []
         intensity_labels = []
-        for fp, (emotion, intensity) in file_path_label_pairs:
+        for fp, (emotion, intensity) in tqdm(file_path_label_pairs,
+                                             desc="Preprocessing audio files"):
             data = self._process_single_file(fp)
             if data is not None:  # Only append succesfully loaded audio
                 processed_data.append(data)
@@ -107,7 +109,7 @@ class AudioPreprocessor:
             np.ndarray: The augmented raw audio/ spectrogram.
         """
         if self.data_augmenter:
-            return self.data_augmenter(data)
+            return self.data_augmenter.augment_raw_file(data)
         return data
 
     def _standardize_raw_length(self, audio: np.ndarray) -> np.ndarray:
