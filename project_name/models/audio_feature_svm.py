@@ -11,7 +11,8 @@ class AudioFeatureSVM:
             kernel: str = "rbf",
             regularization_parameter: float = 1.0,
             gamma: str = "scale",
-            probability: bool = False
+            probability: bool = False,
+            seed: int | None = None
     ) -> None:
         """
         Initialize the SVM classifier for audio features.
@@ -26,16 +27,21 @@ class AudioFeatureSVM:
             probability (bool, optional): Whether to support probabilities
                 over hard class predictions. Is only needed when using
                 OneVsRest. Defaults to False
+            seed (int | None, optional): The seed for sklearn functions.
+                Defaults to None.
         """
         self.kernel = kernel
         self.regularization_parameter = regularization_parameter
         self.gamma = gamma
         self._probability = probability  # Should not be changed
+        self.seed = seed
+
         self._model = SVC(
             kernel=self.kernel,
             C=self.regularization_parameter,
             gamma=self.gamma,
-            probability=self._probability
+            probability=self._probability,
+            random_state=self.seed
         )
         self._n_features = None
 
@@ -131,7 +137,8 @@ class AudioFeatureSVM:
             "kernel": self.kernel,
             "regularization_parameter": self.regularization_parameter,
             "gamma": self.gamma,
-            "probability": self._probability
+            "probability": self._probability,
+            "seed": self.seed
         }
 
     def set_params(self, **params) -> "AudioFeatureSVM":
@@ -151,6 +158,7 @@ class AudioFeatureSVM:
             kernel=self.kernel,
             C=self.regularization_parameter,
             gamma=self.gamma,
-            probability=self._probability
+            probability=self._probability,
+            random_state=self.seed
         )
         return self

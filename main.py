@@ -6,17 +6,25 @@ from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from sklearn.multiclass import OneVsRestClassifier
 import numpy as np
+import random
+
+seed = 104
+# Some classes also use a seed to control sklearn random processes
+np.random.seed(seed)
+random.seed(seed)
 
 if __name__ == "__main__":
     # Initialize the data file splitter
-    splitter = DataFileSplitter(dataset_path=DATASET_DIR)
+    splitter = DataFileSplitter(dataset_path=DATASET_DIR, seed=seed)
     train_data, val_data, test_data = splitter.get_data_splits_copy()
 
     # Initialize the raw audio augmenter
     augmenter = RawAudioAugmenter()
 
     # Initialize the audio preprocessor
-    preprocessor = AudioPreprocessor(data_augmenter=augmenter)
+    preprocessor = AudioPreprocessor(
+        data_augmenter=augmenter, n_augmentations=1
+    )
 
     # Process the training data
     train_processed, train_emotion_labels, train_intensity_labels = \
@@ -24,7 +32,7 @@ if __name__ == "__main__":
     print("Training data processed.")
 
     # Initialize the audio feature extractor
-    feature_extractor = AudioFeatureExtractor()
+    feature_extractor = AudioFeatureExtractor(use_deltas=False)
 
     # Extract features from the processed training data
     train_features = feature_extractor.extract_features_all(train_processed)
@@ -39,7 +47,7 @@ if __name__ == "__main__":
 
     # Initialize and train the SVM for emotion recognition
     # Use a OneVsRest version to increase the models accuracy
-    base_emotion_svm = AudioFeatureSVM(probability=True)
+    base_emotion_svm = AudioFeatureSVM(probability=True, seed=seed)
     multiclass_emotion_svm = OneVsRestClassifier(base_emotion_svm)
     multiclass_emotion_svm.fit(train_features, train_emotion_labels)
     print("Emotion SVM trained.")

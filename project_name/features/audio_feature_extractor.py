@@ -1,5 +1,6 @@
 from librosa.feature import mfcc, delta
 import numpy as np
+from tqdm import tqdm
 
 
 class AudioFeatureExtractor:
@@ -47,7 +48,7 @@ class AudioFeatureExtractor:
                 Failed extractions are excluded.
         """
         features = []
-        for audio in all_audio:
+        for audio in tqdm(all_audio, desc="Extracting features"):
             feature = self._extract_features(audio)
             if feature is not None:  # Extraction was succesful
                 features.append(feature)
