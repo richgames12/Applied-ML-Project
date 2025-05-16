@@ -13,7 +13,7 @@ class DataFileSplitter:
             dataset_path: str,
             test_size: float = 0.10,
             eval_size: float = 0.10,
-            seed: int = 1
+            seed: int | None = None
     ) -> None:
         """
         Initialize the dataloadersplitter class.
@@ -24,8 +24,8 @@ class DataFileSplitter:
                 test set. Defaults to 0.10.
             eval_size (float, optional): Proportion of data to reserve for
                 validation set. Defaults to 0.10.
-            seed (int, optional): Random seed for reproducibility. Defaults
-                to 1.
+            seed (int | None, optional): Random seed for reproducibility.
+                Defaults to None.
         """
         self._dataset_path = dataset_path
         self.test_size = test_size
