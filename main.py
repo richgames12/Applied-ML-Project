@@ -4,6 +4,8 @@ from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.data.data_augmentation import RawAudioAugmenter
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.audio_feature_svm import AudioFeatureSVM
+from sklearn.multiclass import OneVsRestClassifier
+
 
 if __name__ == "__main__":
     # Initialize the data file splitter
@@ -14,7 +16,7 @@ if __name__ == "__main__":
     augmenter = RawAudioAugmenter()
 
     # Initialize the audio preprocessor
-    preprocessor = AudioPreprocessor(data_augmenter=augmenter)
+    preprocessor = AudioPreprocessor(data_augmenter=None)
 
     # Process the training data
     train_processed, train_emotion_labels, train_intensity_labels = \
@@ -29,8 +31,9 @@ if __name__ == "__main__":
     print("Training features extracted.")
 
     # Initialize and train the SVM for emotion recognition
-    emotion_svm = AudioFeatureSVM()
-    emotion_svm.fit(train_features, train_emotion_labels)
+    base_emotion_svm = AudioFeatureSVM(probability=True)
+    multiclass_emotion_svm = OneVsRestClassifier(base_emotion_svm)
+    multiclass_emotion_svm.fit(train_features, train_emotion_labels)
     print("Emotion SVM trained.")
 
     # Process the test data
@@ -44,7 +47,7 @@ if __name__ == "__main__":
     print("Test features extracted.")
 
     if test_features.shape[0] > 0:
-        emotion_accuracy = emotion_svm.score(
+        emotion_accuracy = multiclass_emotion_svm.score(
             test_features, test_emotion_labels
         )
         print(
