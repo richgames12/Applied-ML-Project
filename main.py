@@ -9,12 +9,12 @@ from sklearn.multiclass import OneVsRestClassifier
 import numpy as np
 import random
 
-seed = None
-# Some classes also use a seed to control sklearn random processes
-np.random.seed(seed)
-random.seed(seed)
-
 if __name__ == "__main__":
+    seed = None
+    # Some classes also use a seed to control sklearn random processes
+    np.random.seed(seed)
+    random.seed(seed)
+
     # Initialize the data file splitter
     splitter = DataFileSplitter(dataset_path=DATASET_DIR, seed=seed)
     train_data, val_data, test_data = splitter.get_data_splits_copy()
