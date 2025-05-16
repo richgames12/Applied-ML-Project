@@ -24,7 +24,8 @@ class AudioFeatureSVM:
             gamma (str, optional): The kernel coefficient to be used. Defaults
                 to "scale".
             probability (bool, optional): Whether to support probabilities
-                over hard class predictions.
+                over hard class predictions. Is only needed when using
+                OneVsRest. Defaults to False
         """
         self.kernel = kernel
         self.regularization_parameter = regularization_parameter
