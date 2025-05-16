@@ -10,6 +10,7 @@ class AudioPreprocessor:
             sampling_rate: int = 22050,
             target_length: int = 66150,
             data_augmenter: RawAudioAugmenter | None = None,
+            n_augmentations: int = 1,
             use_spectrograms: bool = False
     ) -> None:
         """Initialize the audio preprocessor.
@@ -22,12 +23,15 @@ class AudioPreprocessor:
             data_augmenter (RawAudioAugmenter | None, optional): The augmenter
                 that is to be used. If no augmenter is specified, there will be
                 no augmentation. Defaults to None.
+            n_augmentations (int, optional): The number of augmentation files
+                that should be made for each data file. Defaults to 1.
             use_spectrograms (bool, optional): Whether the preprocessor should
                 use spectrograms or raw data. Defaults to False.
         """
         self.sampling_rate = sampling_rate
         self.target_length = target_length
         self.data_augmenter = data_augmenter
+        self.n_augmentations = n_augmentations
         self.use_spectrograms = use_spectrograms
 
     def process_all(
@@ -49,36 +53,42 @@ class AudioPreprocessor:
         intensity_labels = []
         for fp, (emotion, intensity) in tqdm(file_path_label_pairs,
                                              desc="Preprocessing audio files"):
-            data = self._process_single_file(fp)
-            if data is not None:  # Only append succesfully loaded audio
-                processed_data.append(data)
-                emotion_labels.append(emotion)
-                intensity_labels.append(intensity)
+            data_list = self._process_single_file(fp)
+            if data_list is not None:  # Only append succesfully loaded audio
+                for data in data_list:
+                    processed_data.append(data)
+                    # If more files were added, more labels should be added.
+                    emotion_labels.append(emotion)
+                    intensity_labels.append(intensity)
+
         return (np.array(processed_data),
                 np.array(emotion_labels),
                 np.array(intensity_labels))
 
     def _process_single_file(
             self, file_path: str
-    ) -> tuple[np.ndarray, int, int] | None:
+    ) -> list[np.ndarray] | None:
         """Load and preprocess the audio and extract the labels.
 
+        If self.n_augmentations > 1, there will be more augmented versions for
+            each file.
         Args:
             file_path (str): The path to where the audio file is stored.
 
         Returns:
-            tuple[np.ndarray, int, int] | None: The preprocessed audio
-                followed by the corresponding emotion and intensity labels.
+            list[np.ndarray] | None: The preprocessed audio.
         """
         raw_audio = self._load_audio(file_path)
         if raw_audio is None:
             return None
         # Process the raw data
-        augmented_raw_audio = self._augment_data(raw_audio)
-        length_standardized_audio = self._standardize_raw_length(
-            augmented_raw_audio
-        )
-        return length_standardized_audio
+        augmented = self._augment_data(raw_audio)
+
+        processed = []
+        for augmented_audio in augmented:
+            processed.append(self._standardize_raw_length(augmented_audio))
+
+        return processed
 
     def _load_audio(self, file_path: str) -> np.ndarray | None:
         """
@@ -97,24 +107,29 @@ class AudioPreprocessor:
             print(f"Error loading audio file '{file_path}': {e}")
             return None
 
-    def _augment_data(self, data: np.ndarray) -> np.ndarray:
+    def _augment_data(self, data: np.ndarray) -> list[np.ndarray]:
         """Augment either the raw audio or spectogram.
 
+        It creates "self.n_augmentations" augmented versions of the data.
         Args:
             data (np.ndarray): Either the raw audio when a raw audio augmenter
                 is given or a spectrogram when a spectrogram augmenter is
                 given. The right augmenter should be provided.
 
         Returns:
-            np.ndarray: The augmented raw audio/ spectrogram.
+            list[np.ndarray]: The augmented raw audio/ spectrogram. More
+                augmented versions are placed together in a list.
         """
         if self.data_augmenter:
-            return self.data_augmenter.augment_raw_file(data)
-        return data
+            augmented_versions = [self.data_augmenter.augment_raw_file(data)
+                                  for _ in range(self.n_augmentations)]
+            return augmented_versions
+        # Return without augmenting
+        return [data]
 
     def _standardize_raw_length(self, audio: np.ndarray) -> np.ndarray:
         """
-        Pad or trim the raw audio data to make it the right lenght.
+        Pad or trim the raw audio data to make it the right length.
 
         Args:
             audio (np.ndarray): The raw audio for which the length needs to be
