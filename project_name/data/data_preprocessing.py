@@ -11,7 +11,10 @@ class AudioPreprocessor:
             target_length: int = 66150,
             data_augmenter: RawAudioAugmenter | None = None,
             n_augmentations: int = 1,
-            use_spectrograms: bool = False
+            use_spectrograms: bool = False,
+            n_mels: int = 128,
+            n_fft: int = 2048,
+            hop_length: int = 512
     ) -> None:
         """Initialize the audio preprocessor.
 
@@ -27,12 +30,22 @@ class AudioPreprocessor:
                 that should be made for each data file. Defaults to 1.
             use_spectrograms (bool, optional): Whether the preprocessor should
                 use spectrograms or raw data. Defaults to False.
+            n_mels (int, optional): The number of frequency bins. Defaults to
+                128.
+            n_fft (int, optional): The length of the fft window. Defaults to
+                2048.
+            hop_length (int, optional): By how much the fft window is moved
+                each step. Defaults to 512.
+
         """
         self.sampling_rate = sampling_rate
         self.target_length = target_length
         self.data_augmenter = data_augmenter
         self.n_augmentations = n_augmentations
         self.use_spectrograms = use_spectrograms
+        self.n_mels = n_mels
+        self.n_fft = n_fft
+        self.hop_length = hop_length
 
     def process_all(
         self, file_path_label_pairs: list[tuple[str, tuple[int, int]]]
@@ -86,7 +99,15 @@ class AudioPreprocessor:
 
         processed = []
         for augmented_audio in augmented:
-            processed.append(self._standardize_raw_length(augmented_audio))
+            standardized_audio = self._standardize_raw_length(augmented_audio)
+
+            if self.use_spectrograms:
+                # Process spectrograms
+                spec = self._create_mel_spectrogram(standardized_audio)
+                processed.append(spec)
+            else:
+                # Or just keep the waveform
+                processed.append(standardized_audio)
 
         return processed
 
@@ -106,6 +127,20 @@ class AudioPreprocessor:
         except Exception as e:
             print(f"Error loading audio file '{file_path}': {e}")
             return None
+
+    def _create_mel_spectrogram(self, raw_audio: np.ndarray) -> np.ndarray:
+        mel_spec = librosa.feature.melspectrogram(
+            y=raw_audio,
+            sr=self.sampling_rate,
+            n_mels=self.n_mels,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length
+        )
+        # Put the values into a more manageble scale
+        log_mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
+        # Add an empty dimension at the start as it is just 2D
+        log_mel_spec[np.newaxis, :, :]  # (1, n_mels, time_frames)
+        return log_mel_spec
 
     def _augment_data(self, data: np.ndarray) -> list[np.ndarray]:
         """Augment either the raw audio or spectogram.
@@ -148,3 +183,6 @@ class AudioPreprocessor:
             return audio[:self.target_length]
         # The audio is exactly the right length
         return audio
+
+    def _standardize_spectrogram_size(self, spectrogram):
+        pass
