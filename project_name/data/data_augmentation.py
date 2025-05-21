@@ -17,17 +17,17 @@ class RawAudioAugmenter:
         self,
         sampling_rate: int = 22050,
         min_noise_amplitude: float = 0.001,
-        max_noise_amplitude: float = 0.015,
-        noise_probability: float = 0.5,
-        min_speed: float = 0.8,
-        max_speed: float = 1.25,
-        speed_probability: float = 0.5,
-        lower_pitch: float = -4,
-        upper_pitch: float = 4,
-        pitch_probability: float = 0.5,
-        backward_shift: float = -0.5,
-        forward_shift: float = 0.5,
-        shift_probability: float = 0.5
+        max_noise_amplitude: float = 0.010,
+        noise_probability: float = 0.3,
+        min_speed: float = 0.9,
+        max_speed: float = 1.1,
+        speed_probability: float = 0.3,
+        lower_pitch: float = -2,
+        upper_pitch: float = 2,
+        pitch_probability: float = 0.3,
+        backward_shift: float = -0.1,
+        forward_shift: float = 0.1,
+        shift_probability: float = 0.3
     ) -> None:
         """Initializes the RawAudioAugmenter class with specific values.
 
