@@ -1,10 +1,30 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class MultiheadEmotionCNN(nn.Module):
-    def __init__(self, num_emotions=8, num_intensity=2, in_channels=1):
-        """Initialize the CNN blocks."""
+    """
+    Create a CNN for multitask classification of emotion and intensity from
+    spectrograms.
+
+    This model uses shared feature extraction convolutional blocks followed by
+    a shared fully connected layer. Then uses 2 separate fully connected heads
+    to predict the emotion and intensity classes.
+    """
+    def __init__(self, num_emotions=8, num_intensity=2, in_channels=1) -> None:
+        """Initialize the CNN with the right convolutional blocks and fully
+            connected layers.
+
+        Args:
+            num_emotions (int, optional): Number of emotions to classify.
+                Defaults to 8.
+            num_intensity (int, optional): Number of intensities to classify.
+                Defaults to 2.
+            in_channels (int, optional): The number of layers of the
+                spectogram. Normal 2D specteogram has 1, RGB spectrogram has 3.
+                Defaults to 1.
+        """
         super(MultiheadEmotionCNN, self).__init__()
 
         # Shared feature extraction blocks
@@ -34,12 +54,27 @@ class MultiheadEmotionCNN(nn.Module):
         self.fc_shared = nn.Linear(64 * 16 * 16, 256)
 
         # Emotion classification head
-        self.fc_emotion = nn.Linear(256, 8)
+        self.fc_emotion = nn.Linear(256, num_emotions)
 
         # Intensity classification head
-        self.fc_intensity = nn.Linear(256, 2)
+        self.fc_intensity = nn.Linear(256, num_intensity)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Perform a forward pass through the CNN.
+
+        Args:
+            x (torch.Tensor): Input batch of spectrograms, has the following
+                shape: [batch_size, in_channels, height, width]. where
+                batch_size is the number of spectrograms in the batch,
+                in_channels the number of layers of the spectrogram (1 by
+                default) and height and width the sizes of the spectrogram.
+
+        Returns:
+            tuple[ torch.Tensor, torch.Tensor ]: Emotion logits and intensity
+                logits. Emotion logits have size [batch_size, num_emotions]
+                and intensity logits size [batch_size, num_intensity].
+        """
         # Shared Conv + BN + ReLU + Pool
         x = self.conv_block1(x)
         x = self.conv_block2(x)
