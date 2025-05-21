@@ -103,7 +103,7 @@ class AudioPreprocessor:
 
             if self.use_spectrograms:
                 # Process spectrograms
-                spec = self._create_mel_spectrogram(standardized_audio)
+                spec = self._create_log_mel_spectrogram(standardized_audio)
                 processed.append(spec)
             else:
                 # Or just keep the waveform
@@ -128,7 +128,19 @@ class AudioPreprocessor:
             print(f"Error loading audio file '{file_path}': {e}")
             return None
 
-    def _create_mel_spectrogram(self, raw_audio: np.ndarray) -> np.ndarray:
+    def _create_log_mel_spectrogram(self, raw_audio: np.ndarray) -> np.ndarray:
+        """Create a log mel spectrogram from raw audio.
+
+        The loudness in each spectrogram is normalized by its own
+            maximum power value.
+        Args:
+            raw_audio (np.ndarray): The audio for which the spectrogram needs
+                to be made. Has shape: (len(audio)).
+
+        Returns:
+            np.ndarray: The resulting log mel spectrogram with an extra
+                channel dimension of 1. Has shape: (1, n_mels, timeframes).
+        """
         mel_spec = librosa.feature.melspectrogram(
             y=raw_audio,
             sr=self.sampling_rate,
@@ -138,7 +150,7 @@ class AudioPreprocessor:
         )
         # Put the values into a more manageble scale
         log_mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
-        # Add an empty dimension at the start as it is just 2D
+        # Add an empty dimension at the start as it is just 2D not RGB
         log_mel_spec[np.newaxis, :, :]  # (1, n_mels, time_frames)
         return log_mel_spec
 
@@ -183,6 +195,3 @@ class AudioPreprocessor:
             return audio[:self.target_length]
         # The audio is exactly the right length
         return audio
-
-    def _standardize_spectrogram_size(self, spectrogram):
-        pass
