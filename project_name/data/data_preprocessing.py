@@ -165,12 +165,13 @@ class AudioPreprocessor:
 
         Returns:
             list[np.ndarray]: The augmented raw audio/ spectrogram. More
-                augmented versions are placed together in a list.
+                augmented versions are placed together in a list. The original
+                version is always included before the augmented versions.
         """
         if self.data_augmenter:
             augmented_versions = [self.data_augmenter.augment_raw_file(data)
                                   for _ in range(self.n_augmentations)]
-            return augmented_versions
+            return [data] + augmented_versions  # Also add the original version
         # Return without augmenting
         return [data]
 
