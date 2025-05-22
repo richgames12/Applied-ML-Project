@@ -88,3 +88,56 @@ class MultiheadEmotionCNN(nn.Module):
         emotion_logits = self.fc_emotion(x)
         intensity_logits = self.fc_intensity(x)
         return emotion_logits, intensity_logits
+
+
+
+
+    def predict(self, x: torch.Tensor):
+        """
+        Predict/classify a batch of spectograms. 
+        Do this using argmax on the logits
+
+        Args:
+            x (torch.Tensor): Input batch of spectrograms, has the following
+                shape: [batch_size, in_channels, height, width]. where
+                batch_size is the number of spectrograms in the batch,
+                in_channels the number of layers of the spectrogram (1 by
+                default) and height and width the sizes of the spectrogram.
+
+        Returns:
+            index of most likely and thus predicted class for each spectogram in the batch, 
+            for both tasks
+            tuple[ torch.Tensor, torch.Tensor ]: each tensor has size [batch_size]
+
+        """
+        self.eval()
+        with torch.no_grad():
+            emotion_logits, intensity_logits = self.forward(x)
+        
+        emotion_predictions = torch.argmax(emotion_logits, dim=1)
+        intensity_predictions = torch.argmax(intensity_logits, dim=1)
+
+        return emotion_predictions, intensity_predictions
+
+
+#Keeping this outisde of the class because it makes more sense to add this to thre pipeline, 
+#seeing as we may want to use different types of training method, this uses stochastic gradient descent
+def fit(self, x: torch.Tensor, classes: tuple[torch.Tensor, torch.Tensor]):
+    """
+    We fit the model to dual-task dataset. 
+
+    Args:
+        x (torch.Tensor): Input batch of spectrograms, has the following
+            shape: [batch_size, in_channels, height, width]. where
+            batch_size is the number of spectrograms in the batch,
+            in_channels the number of layers of the spectrogram (1 by
+            default) and height and width the sizes of the spectrogram.
+        classes (tuple): of (torch.Tensor, torch.Tensor) 
+        The first tensor has size [batch, num of classes for task 1]
+        The second tensor has size [batch, num of classes for task 2]
+        
+
+    Returns:
+
+    """
+        
