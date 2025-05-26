@@ -1,5 +1,7 @@
 from sklearn.svm import SVC
 import numpy as np
+import joblib
+import os
 
 
 class AudioFeatureSVM:
@@ -162,3 +164,44 @@ class AudioFeatureSVM:
             random_state=self.seed
         )
         return self
+
+    def save(self, model_name: str = "audio_svm.joblib") -> None:
+        """
+        Save a trained AudioFeatureSVM model.
+
+        Args:
+            filepath (str): The location where the model should go. Defaults
+                to "audio_svm.joblib".
+        """
+        if self._n_features is None:
+            raise ValueError("Model has not been trained yet. Can't save.")
+        # Determine where the models should be stored
+        folder = folder = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "saved_models"
+        )
+        if not os.path.exists(folder):
+            # Only create the folder if it does not yet exist
+            os.makedirs(folder)
+
+        filepath = os.path.join(folder, model_name)
+
+        # Save the whole class instance in the folder
+        joblib.dump(self, filepath)
+
+    @classmethod  # Bound to class instead of specific object
+    def load(cls, filepath: str) -> "AudioFeatureSVM":
+        """
+        Load a saved AudioFeaturesSVM model.
+
+        Args:
+            filepath (str): The location where the model is stored.
+
+        Returns:
+            AudioFeatureSVM: The loaded model instance.
+        """
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"No model found at {filepath}")
+        loaded_model = joblib.load(filepath)
+        if not isinstance(loaded_model, cls):
+            raise TypeError(f"Loaded object is not of type {cls.__name__}")
+        return loaded_model
