@@ -5,3 +5,5 @@ __pycache__/
 .conda
 # name of folder for data in project_name/data
 uwrfkaggler/
+# Don't sync the trained models to gihub
+trained_models/
