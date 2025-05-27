@@ -7,3 +7,5 @@ __pycache__/
 uwrfkaggler/
 # Don't sync the trained models to gihub
 saved_models/
+# Don't sync the uploaded files to github
+uploadedfiles/
