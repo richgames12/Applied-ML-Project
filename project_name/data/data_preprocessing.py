@@ -48,35 +48,64 @@ class AudioPreprocessor:
         self.hop_length = hop_length
 
     def process_all(
-        self, file_path_label_pairs: list[tuple[str, tuple[int, int]]]
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        self,
+        file_path_label_pairs: list[tuple[str, tuple[int, int]]] | list[str]
+    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
         """Load and preprocess audio data from (filepath, label) pairs.
 
         Args:
-            file_path_label_pairs (List[Tuple[str, Tuple[int, int]]]): A list
-                of tuples, where each tuple contains the file path to the audio
-                data and its corresponding (emotion, intensity) label.
+            file_path_label_pairs (list[Tuple[str, tuple[int, int]]] |
+                list[str]): A list of tuples, where each tuple contains the
+                file path to the audio data and its corresponding (emotion,
+                intensity) label. If there are no labels, it should be just a
+                list of file paths.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray]: The processed data
-            (raw or spectrogram), emotion labels, and intensity labels.
+            Tuple[np.ndarray, np.ndarray | None, np.ndarray | None]: The
+            processed data (raw or spectrogram), emotion labels, and intensity
+            labels. If the input contains no emotion or intensity labels, they
+            will be None
         """
         processed_data = []
         emotion_labels = []
         intensity_labels = []
-        for fp, (emotion, intensity) in tqdm(file_path_label_pairs,
-                                             desc="Preprocessing audio files"):
-            data_list = self._process_single_file(fp)
+
+        # Detect whether the input contains labels or not
+        labels_present = (
+            isinstance(file_path_label_pairs[0], tuple)
+            and isinstance(file_path_label_pairs[0][1], tuple)
+            and len(file_path_label_pairs[0][1]) == 2
+        )
+
+        for item in tqdm(
+            file_path_label_pairs, desc="Preprocessing audio files"
+        ):
+            # Extract labels only when they are present
+            if labels_present:
+                file_path, (emotion, intensity) = item
+            else:
+                file_path = item
+
+            data_list = self._process_single_file(file_path)
             if data_list is not None:  # Only append succesfully loaded audio
                 for data in data_list:
                     processed_data.append(data)
                     # If more files were added, more labels should be added.
-                    emotion_labels.append(emotion)
-                    intensity_labels.append(intensity)
+                    if labels_present:
+                        # Only handle these if they are present
+                        emotion_labels.append(emotion)
+                        intensity_labels.append(intensity)
 
-        return (np.array(processed_data),
+        data_array = np.array(processed_data)
+        # Only return labels when they exist
+        if labels_present:
+            return (
+                data_array,
                 np.array(emotion_labels),
-                np.array(intensity_labels))
+                np.array(intensity_labels)
+            )
+        else:
+            return data_array, None, None
 
     def _process_single_file(
             self, file_path: str
