@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 
 
 class MultiheadEmotionCNN(nn.Module):
@@ -88,3 +89,68 @@ class MultiheadEmotionCNN(nn.Module):
         emotion_logits = self.fc_emotion(x)
         intensity_logits = self.fc_intensity(x)
         return emotion_logits, intensity_logits
+
+
+
+
+    def predict(self, x: torch.Tensor):
+        """
+        Predict/classify a batch of spectograms. 
+        Do this using argmax on the logits
+
+        Args:
+            x (torch.Tensor): Input batch of spectrograms, has the following
+                shape: [batch_size, in_channels, height, width]. where
+                batch_size is the number of spectrograms in the batch,
+                in_channels the number of layers of the spectrogram (1 by
+                default) and height and width the sizes of the spectrogram.
+
+        Returns:
+            index of most likely and thus predicted class for each spectogram in the batch, 
+            for both tasks
+            tuple[ torch.Tensor, torch.Tensor ]: each tensor has size [batch_size]
+
+        """
+        self.eval()
+        with torch.no_grad():
+            emotion_logits, intensity_logits = self.forward(x)
+        
+        emotion_predictions = torch.argmax(emotion_logits, dim=1)
+        intensity_predictions = torch.argmax(intensity_logits, dim=1)
+
+        return emotion_predictions, intensity_predictions
+
+
+#Keeping this outisde of the class because it makes more sense to add this to thre pipeline, 
+#seeing as we may want to use different types of training method, this uses stochastic gradient descent
+def fit_model(model, dataloader, epochs:int):
+    """
+    We fit the model to dual-task dataset.
+
+
+    Args:
+        dataloader: pytorch dataloader that has train data and batch size
+        model: pytorch model
+        epochs: int number of epochs to train for
+        
+
+    Returns:
+
+    """
+
+    #We can pass these as parameters to the train method but im setting them 
+    #here for simplicity
+    optimizer = optim.adam()
+    
+    emotion_labels, intensity_labels = classes
+
+    model.train()
+    for epoch in range(epochs):
+        for features, emotion_labels, intensity_labels in dataloader:
+            loss_sum = 0
+            emotion_logits, intensity_logits = model.forward(features)
+            loss_sum += nn.CrossEntropyLoss(emotion_logits, emotion_labels)
+            loss_sum += nn.CrossEntropyLoss(intensity_logits, intensity_labels)
+            loss_sum.backward()
+            optimizer.step()
+        print(f'Epoch {epoch} Loss {loss_sum.item()}')
