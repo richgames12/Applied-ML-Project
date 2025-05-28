@@ -7,3 +7,4 @@ scikit-learn
 audiomentations
 torch
 fastapi[standard]
+seaborn
