@@ -37,6 +37,7 @@ class AudioFeatureSVM:
         self.gamma = gamma
         self._probability = probability  # Should not be changed
         self.seed = seed
+        self.type = "SVM"
 
         self._model = SVC(
             kernel=self.kernel,
