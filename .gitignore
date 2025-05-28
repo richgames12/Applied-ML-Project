@@ -4,7 +4,8 @@ __pycache__/
 .DS_Store
 .conda
 # name of folder for data in project_name/data
-uwrfkaggler/
+ravdess-audio/
+
 # Don't sync the trained models to gihub
 saved_models/
 # Don't sync the uploaded files to github

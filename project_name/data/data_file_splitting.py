@@ -85,6 +85,14 @@ class DataFileSplitter:
         if self._audio_paths:  # Already collected
             return
 
+        # The dataset should exist, otherwise no filepaths will be collected
+        if not os.path.isdir(self._dataset_path):
+            raise FileNotFoundError(
+                f"Dataset path '{self._dataset_path}' does not exist or is"
+                " not a directory.\nPlease make sure the dataset is downloaded"
+                " and placed at this location."
+            )
+
         for root, _, files in os.walk(self._dataset_path):
             for file in files:
                 if file.endswith(".wav"):
