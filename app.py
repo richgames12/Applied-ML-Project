@@ -202,7 +202,7 @@ async def list_uploaded_files():
 # User select model from home to use
 @app.post("/select_model/", response_class=HTMLResponse)
 async def select_model(model: str = Form(...)):
-    if os.path.exists(f"project_name/saved_models/{model}"):
+    if os.path.exists(f"project_name/saved_models/{model}.joblib"):
         # Here you can implement logic to set the selected model
         content = f"""
         <html>
