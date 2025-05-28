@@ -5,9 +5,16 @@ from project_name.data.data_augmentation import RawAudioAugmenter
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from sklearn.multiclass import OneVsRestClassifier
+from project_name.evaluation.model_evaluation import ModelEvaluator
 
 import numpy as np
 import random
+
+EMOTION_LABELS = {
+    1: 'neutral', 2: 'calm', 3: 'happy', 4: 'sad',
+    5: 'angry', 6: 'fearful', 7: 'disgust', 8: 'surprised'
+}
+INTENSITY_LABELS = {0: 'normal', 1: 'strong'}
 
 
 if __name__ == "__main__":
@@ -97,21 +104,26 @@ if __name__ == "__main__":
     # ____________________________________________
 
     if test_features.shape[0] > 0:
-        # Evaluate emotion SVM
-        emotion_accuracy = multiclass_emotion_svm.score(
-            test_features, test_emotion_labels
+        print("Evaluating Emotion Model")
+        pred_emotion_labels = multiclass_emotion_svm.predict(test_features)
+
+        # Initialize the emotion evaluator
+        emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
+        emotion_evaluator.evaluate_from_predictions(
+            labels_true=test_emotion_labels,
+            labels_pred=pred_emotion_labels,
+            title_suffix="Emotion Recognition SVM"
         )
-        # Evaluate intensity SVM
-        intensity_accuracy = base_intensity_svm.score(
-            test_features, test_intensity_labels
-        )
-        print(
-            "Emotion recognition accuracy on the test set:",
-            f"{emotion_accuracy:.4f}"
-        )
-        print(
-            "Intensity recognition accuracy on the test set:",
-            f"{intensity_accuracy:.4f}"
+
+        print("Evaluating Intensity Model")
+        pred_intesity_labels = base_intensity_svm.predict(test_features)
+
+        # Initialize the intensity evaluator
+        intensity_evaluator = ModelEvaluator(class_labels=INTENSITY_LABELS)
+        intensity_evaluator.evaluate_from_predictions(
+            labels_true=test_intensity_labels,
+            labels_pred=pred_intesity_labels,
+            title_suffix="Intensity Recognition SVM"
         )
     else:
         print("No test data available for evaluation.")
