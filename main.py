@@ -4,10 +4,14 @@ from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.data.data_augmentation import RawAudioAugmenter
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.audio_feature_svm import AudioFeatureSVM
+from project_name.models.spectrogram_cnn import MultiheadEmotionCNN
+from project_name.models.spectrogram_cnn import fit_model
 from sklearn.multiclass import OneVsRestClassifier
 
+import torch
 import numpy as np
 import random
+from torch.utils.data import DataLoader, TensorDataset
 
 if __name__ == "__main__":
     seed = None
@@ -26,6 +30,7 @@ if __name__ == "__main__":
     preprocessor = AudioPreprocessor(
         data_augmenter=augmenter, n_augmentations=2
     )
+    
 
     # Process the training data
     train_processed, train_emotion_labels, train_intensity_labels = \
@@ -39,12 +44,26 @@ if __name__ == "__main__":
     train_features = feature_extractor.extract_features_all(train_processed)
     print("Training features extracted.")
 
+
+
+    #Create tensor dataset to be used with dataloader 
+    dataset = TensorDataset(train_features, train_emotion_labels, train_intensity_labels)
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+    #Model train test
+    CNN = MultiheadEmotionCNN()
+    fit_model(CNN, dataloader, 10)
+
+
     # Shuffle the data before training the SVM
     indices = np.arange(len(train_features))
     np.random.shuffle(indices)
     train_features = train_features[indices]
     train_emotion_labels = train_emotion_labels[indices]
     train_intensity_labels = train_intensity_labels[indices]
+
+
+
 
     # Initialize and train the SVM for emotion recognition
     # Use a OneVsRest version to increase the models accuracy
@@ -75,3 +94,6 @@ if __name__ == "__main__":
         )
     else:
         print("No test data available for evaluation.")
+
+
+    #C
