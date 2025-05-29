@@ -176,6 +176,7 @@ async def main():
     return HTMLResponse(content=content)
 
 
+@app.post("/uploadfiles/")
 async def create_upload_files(
     files: Annotated[
         list[UploadFile], File(description="Multiple files as UploadFile")
@@ -389,7 +390,7 @@ async def predict(
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
-    
+
     match model:
         case "intensity_svm":
             selected_model = AudioFeatureSVM.load(
