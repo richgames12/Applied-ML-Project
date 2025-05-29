@@ -182,6 +182,12 @@ async def create_upload_files(
         list[UploadFile], File(description="Multiple files as UploadFile")
     ],
 ):
+    """
+    Upload multiple .wav files.
+
+    Validates and saves .wav files to the 'uploadedfiles' directory.
+    Rejects non-.wav files or duplicates.
+    """
     filenames = [file.filename for file in files]
     for file in files:
         if file.filename[-4:] != ".wav":
@@ -224,6 +230,11 @@ async def create_upload_files(
 
 @app.get("/uploadedfiles/", response_class=HTMLResponse)
 async def list_uploaded_files():
+    """
+    List uploaded audio files.
+
+    Displays all files currently stored in the 'uploadedfiles' directory.
+    """
     files = []
     if os.path.exists("uploadedfiles"):
         files = os.listdir("uploadedfiles")
@@ -252,6 +263,11 @@ async def list_uploaded_files():
 # User select model from home to use
 @app.post("/select_model/", response_class=HTMLResponse)
 async def select_model(model: Optional[str] = Form(None)):
+    """
+    Select a trained model for prediction.
+
+    Checks if the selected model exists and prompts for selecting .wav files.
+    """
     if not model:
         raise HTTPException(
             status_code=400, detail="No model selected. Please select a model."
@@ -298,6 +314,11 @@ async def feature_selection(
     model: str = Form(...),
     audio_files: Optional[list[str]] = Form(None),
 ):
+    """
+    Perform feature selection on selected audio files using a model.
+
+    Validates files and prepares data for prediction.
+    """
     if not audio_files:
         raise HTTPException(
             status_code=400, detail="No audio files selected for feature selection."
@@ -349,6 +370,11 @@ async def predict(
     model: str = Form(...),
     audio_files: Union[list[str], str] = Form(...),
 ):
+    """
+    Predict emotion or intensity from uploaded audio files.
+
+    Loads the selected model and extracted features to run predictions.
+    """
     # Normalize audio_files to a list
     if isinstance(audio_files, str):
         audio_files = [audio_files]
@@ -364,7 +390,7 @@ async def predict(
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
-    
+
     match model:
         case "intensity_svm":
             selected_model = AudioFeatureSVM.load(
