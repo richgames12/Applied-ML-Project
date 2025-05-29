@@ -6,7 +6,7 @@ import numpy as np
 import librosa.display
 
 #plot the first audio file in the dataset
-dataset_path = 'project_name/data/uwrfkaggler/ravdess-emotional-speech-audio/versions/1'
+dataset_path = f'project_name{os.sep}data{os.sep}uwrfkaggler{os.sep}ravdess-emotional-speech-audio{os.sep}versions{os.sep}1'
 first_audio_file = os.path.join(dataset_path, 'Actor_01', '03-01-02-01-01-01-01.wav')
 
 def plot_audio_file(file_path: str, sampling_rate: float=44100):

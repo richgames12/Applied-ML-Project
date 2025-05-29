@@ -3,6 +3,8 @@ Pipfile.lock
 __pycache__/
 .DS_Store
 .conda
+venv/
+.env
 # name of folder for data in project_name/data
 ravdess-audio/
 

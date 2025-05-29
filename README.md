@@ -1,3 +1,38 @@
+# Instructions on how to run
+- Python version 3.12.7 is needed
+- First make sure you are in APPLIED-ML-PROJECT
+```bash
+    $cd APPLIED-ML-PROJECT
+```
+- Second download the dataset
+```bash
+    $python download_dataset.py
+```
+- Third install requirements
+```bash
+    $python -m pip install -r requirements.txt
+```
+- Fourth run main.py to train the model you'll get some confusion matrices from models.
+```bash
+    $python main.py
+```
+- Fifth start up the API
+```bash
+    $uvicorn app:app --reload
+```
+- Then control click on http://127.0.0.1:8000 to go to the page.
+From there press choose files and then choose some wav files from the ravdess-audio that was downloaded into project_name/data and press submit and back to home.
+
+- Then choose the model that was saved and press submit.
+
+- Now select the audio files you want to predict (ctrl + click to select multiple files one by one and shift + click to select whole rows.) then press select files.
+
+- Now press predict to get the predictions of your audio.
+
+
+
+# Below is for contributors only
+
 # Applied ML Template 🛠️
 
 **Welcome to Applied Machine Learning!** This template is designed to streamline the development process and boost the quality of your code.
