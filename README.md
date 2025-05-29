@@ -1,4 +1,5 @@
 # Instructions on how to run
+- Python version 3.12.7 is needed
 - First make sure you are in APPLIED-ML-PROJECT
 ```bash
     $cd APPLIED-ML-PROJECT
@@ -9,7 +10,7 @@
 ```
 - Third install requirements
 ```bash
-    $pip install -r requirements.txt
+    $python -m pip install -r requirements.txt
 ```
 - Fourth run main.py to train the model you'll get some confusion matrices from models.
 ```bash
@@ -30,7 +31,7 @@ From there press choose files and then choose some wav files from the ravdess-au
 
 
 
-# Below is for contributers only
+# Below is for contributors only
 
 # Applied ML Template 🛠️
 
