@@ -4,13 +4,13 @@
 ```bash
     $cd APPLIED-ML-PROJECT
 ```
-- Second download the dataset
-```bash
-    $python download_dataset.py
-```
-- Third install requirements
+- Second install requirements
 ```bash
     $python -m pip install -r requirements.txt
+```
+- Third download the dataset
+```bash
+    $python download_dataset.py
 ```
 - Fourth run main.py to train the model you'll get some confusion matrices from models.
 ```bash
