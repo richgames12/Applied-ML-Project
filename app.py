@@ -251,7 +251,11 @@ async def list_uploaded_files():
 
 # User select model from home to use
 @app.post("/select_model/", response_class=HTMLResponse)
-async def select_model(model: str = Form(...)):
+async def select_model(model: Optional[str] = Form(...)):
+    if not model:
+        raise HTTPException(
+            status_code=400, detail="No model selected. Please select a model."
+        )
     audio_files = os.listdir("uploadedfiles")
     if os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
         # Here you can implement logic to set the selected model
