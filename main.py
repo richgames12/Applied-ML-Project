@@ -99,6 +99,8 @@ if __name__ == "__main__":
     base_intensity_svm.fit(train_features, train_intensity_labels)
     print("Intensity SVM trained.")
 
+    base_intensity_svm.save(model_name="intensity_svm.joblib")
+
     # ____________________________________________
     #              Model Evaluation
     # ____________________________________________

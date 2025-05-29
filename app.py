@@ -1,7 +1,8 @@
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from project_name.data.data_preprocessing import AudioPreprocessor
+from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 
-from typing import Annotated
+from typing import Annotated, Optional, Union
 import os
 
 from fastapi import (
@@ -53,6 +54,11 @@ STYLE = """
     }
     .predict {
         margin-top: 40px;
+        text-align: center;
+    }
+    .select_feature {
+        margin-top: 40px;
+        text-align: center;
     }
     h2 {
         color: #333;
@@ -267,6 +273,7 @@ async def select_model(model: str = Form(...)):
                     </select>
                     <input type="submit" value="Select Features" class="btn">
                 </form>
+            </div>
             <div class="page-links">
                 <a href="/" class="btn">Back to home</a>
                 <a href="/uploadedfiles/" class="btn">View Uploaded Files</a>
@@ -284,8 +291,12 @@ async def select_model(model: str = Form(...)):
 @app.post("/feature_selection/", response_class=HTMLResponse)
 async def feature_selection(
     model: str = Form(...),
-    audio_files: list[str] = Form(...),
+    audio_files: Optional[list[str]] = Form(None),
 ):
+    if not audio_files:
+        raise HTTPException(
+            status_code=400, detail="No audio files selected for feature selection."
+        )
     if not os.path.exists(f"project_name/saved_models/{model}.joblib"):
         raise HTTPException(
             status_code=404,
@@ -314,7 +325,7 @@ async def feature_selection(
         <h1>Make a Prediction</h1>
         <form action="/predict/" method="post">
             <input type="hidden" name="model" value="{model}">
-            <input type="hidden" name="audio_file" value="{audio_files}">
+            {''.join(f'<input type="hidden" name="audio_files" value="{fname}">' for fname in audio_files)}
             <input type="submit" value="Predict" class="btn">
         </form>
     </div>
@@ -331,8 +342,12 @@ async def feature_selection(
 @app.post("/predict/", response_class=HTMLResponse)
 async def predict(
     model: str = Form(...),
-    audio_files: list[str] = Form(...),
+    audio_files: Union[list[str], str] = Form(...),
 ):
+    # Normalize audio_files to a list
+    if isinstance(audio_files, str):
+        audio_files = [audio_files]
+
     if not os.path.exists(f"project_name/saved_models/{model}.joblib"):
         raise HTTPException(
             status_code=404,
@@ -344,8 +359,21 @@ async def predict(
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
+    # tell the user that the model is being loaded
+    content = f"""
+    <body>
+    <style>
+        {STYLE}
+    </style>
+    <div class="container">
+        <h1>Loading Model</h1>
+        <p>Loading model <strong>{model}</strong> for prediction...</p>
+    </div>
+    """
+    HTMLResponse(content=content)
+    
     match model:
-        case "audio_svm":
+        case "audio_svm" | "intensity_svm":
             selected_model = AudioFeatureSVM.load(
                 f"project_name/saved_models/{model}.joblib"
             )
@@ -380,7 +408,11 @@ async def predict(
             detail="No valid audio files found for prediction.",
         )
 
-    predictions = selected_model.predict(processed_audios)
+    # Extract features before prediction
+    feature_extractor = AudioFeatureExtractor(use_deltas=True, n_mfcc=20)
+    features = feature_extractor.extract_features_all(processed_audios)
+
+    predictions = selected_model.predict(features)
 
     # Here you would implement the prediction logic
     content = f"""
