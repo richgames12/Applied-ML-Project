@@ -251,7 +251,7 @@ async def list_uploaded_files():
 
 # User select model from home to use
 @app.post("/select_model/", response_class=HTMLResponse)
-async def select_model(model: Optional[str] = Form(...)):
+async def select_model(model: Optional[str] = Form(None)):
     if not model:
         raise HTTPException(
             status_code=400, detail="No model selected. Please select a model."
