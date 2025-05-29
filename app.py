@@ -1,6 +1,7 @@
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
+from main import INTENSITY_LABELS, EMOTION_LABELS
 
 from typing import Annotated, Optional, Union
 import os
@@ -271,7 +272,7 @@ async def select_model(model: str = Form(...)):
                         <option value="" disabled>Select audio files</option>
                         {''.join(f'<option value="{fname}">{fname}</option>' for fname in audio_files)}
                     </select>
-                    <input type="submit" value="Select Features" class="btn">
+                    <input type="submit" value="Select Files" class="btn">
                 </form>
             </div>
             <div class="page-links">
@@ -359,21 +360,9 @@ async def predict(
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
-    # tell the user that the model is being loaded
-    content = f"""
-    <body>
-    <style>
-        {STYLE}
-    </style>
-    <div class="container">
-        <h1>Loading Model</h1>
-        <p>Loading model <strong>{model}</strong> for prediction...</p>
-    </div>
-    """
-    HTMLResponse(content=content)
     
     match model:
-        case "audio_svm" | "intensity_svm":
+        case "intensity_svm":
             selected_model = AudioFeatureSVM.load(
                 f"project_name/saved_models/{model}.joblib"
             )
@@ -414,6 +403,21 @@ async def predict(
 
     predictions = selected_model.predict(features)
 
+    if len(predictions) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No predictions could be made. Check the audio files and model.",
+        )
+    match model:
+        case "intensity_svm":
+            predictions = [INTENSITY_LABELS[pred - 1] for pred in predictions]
+        case "emotion_svm":
+            predictions = [EMOTION_LABELS[pred - 1] for pred in predictions]
+        case _:
+            raise HTTPException(
+                status_code=404, detail=f"Model {model} is not supported."
+            )
+
     # Here you would implement the prediction logic
     content = f"""
     <body>
@@ -429,6 +433,8 @@ async def predict(
             <li>Predictions: {', '.join(str(pred) for pred in predictions)}</li>
         </ul>
     </div>
+    <div class="page-links">
+        <a href="/uploadedfiles/" class="btn">View Uploaded Files</a>
         <a href="/" class="btn">Back to Home</a>
     </div>
     </body>
