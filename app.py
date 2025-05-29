@@ -125,7 +125,7 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 @app.get("/")
 async def main():
     try:
-        model_options = os.listdir("project_name/saved_models")
+        model_options = os.listdir(f"project_name{os.sep}saved_models")
         model_options = [
             f.split(".")[0] for f in model_options if f.endswith(".joblib")
         ]
@@ -193,12 +193,12 @@ async def create_upload_files(
         if not os.path.exists("uploadedfiles"):
             os.makedirs("uploadedfiles")
         # Save the file
-        if os.path.exists(f"uploadedfiles/{file.filename}"):
+        if os.path.exists(f"uploadedfiles{os.sep}{file.filename}"):
             raise HTTPException(
                 status_code=400,
                 detail=f"File {file.filename} already exists.",
             )
-        with open(f"uploadedfiles/{file.filename}", "wb") as f:
+        with open(f"uploadedfiles{os.sep}{file.filename}", "wb") as f:
             content = await file.read()
             f.write(content)
     content = f"""
@@ -253,7 +253,7 @@ async def list_uploaded_files():
 @app.post("/select_model/", response_class=HTMLResponse)
 async def select_model(model: str = Form(...)):
     audio_files = os.listdir("uploadedfiles")
-    if os.path.exists(f"project_name/saved_models/{model}.joblib"):
+    if os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
         # Here you can implement logic to set the selected model
         content = f"""
         <style>
@@ -298,13 +298,13 @@ async def feature_selection(
         raise HTTPException(
             status_code=400, detail="No audio files selected for feature selection."
         )
-    if not os.path.exists(f"project_name/saved_models/{model}.joblib"):
+    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
         )
     for audio_file in audio_files:
-        if not os.path.exists(f"uploadedfiles/{audio_file}"):
+        if not os.path.exists(f"uploadedfiles{os.sep}{audio_file}"):
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
@@ -349,14 +349,14 @@ async def predict(
     if isinstance(audio_files, str):
         audio_files = [audio_files]
 
-    if not os.path.exists(f"project_name/saved_models/{model}.joblib"):
+    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
         )
 
     for audio_file in audio_files:
-        if not os.path.exists(f"uploadedfiles/{audio_file}"):
+        if not os.path.exists(f"uploadedfiles{os.sep}{audio_file}"):
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
@@ -364,7 +364,7 @@ async def predict(
     match model:
         case "intensity_svm":
             selected_model = AudioFeatureSVM.load(
-                f"project_name/saved_models/{model}.joblib"
+                f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
             )
             pre_processor = AudioPreprocessor(
                 sampling_rate=22050,
