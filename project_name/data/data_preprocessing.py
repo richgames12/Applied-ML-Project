@@ -198,7 +198,7 @@ class AudioPreprocessor:
                 version is always included before the augmented versions.
         """
         if self.data_augmenter:
-            augmented_versions = [self.data_augmenter.augment_raw_file(data)
+            augmented_versions = [self.data_augmenter(data)
                                   for _ in range(self.n_augmentations)]
             return [data] + augmented_versions  # Also add the original version
         # Return without augmenting
