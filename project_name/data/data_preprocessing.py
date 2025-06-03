@@ -1,22 +1,28 @@
 import librosa
 import numpy as np
-from project_name.data.data_augmentation import RawAudioAugmenter
+from project_name.data.data_augmentation import (
+    RawAudioAugmenter,
+    SpectrogramAugmenter
+)
 from tqdm import tqdm
 
 
 class AudioPreprocessor:
+    """A preprocessing class for raw audio and spectrograms."""
     def __init__(
             self,
             sampling_rate: int = 22050,
             target_length: int = 66150,
             data_augmenter: RawAudioAugmenter | None = None,
+            spectrogram_augmenter: SpectrogramAugmenter | None = None,
             n_augmentations: int = 1,
             use_spectrograms: bool = False,
             n_mels: int = 128,
             n_fft: int = 2048,
             hop_length: int = 512
     ) -> None:
-        """Initialize the audio preprocessor.
+        """
+        Initialize the audio preprocessor.
 
         Args:
             sampling_rate (int, optional): The sampling rate of the audio data.
@@ -26,6 +32,9 @@ class AudioPreprocessor:
             data_augmenter (RawAudioAugmenter | None, optional): The augmenter
                 that is to be used. If no augmenter is specified, there will be
                 no augmentation. Defaults to None.
+            spectrogram_augmenter (SpectrogramAugmenter | None, optional): The
+                augmenter that is to be used for spectrograms. If no augmenter
+                is specified, there will be no augmentation. Defaults to None.
             n_augmentations (int, optional): The number of augmentation files
                 that should be made for each data file. Defaults to 1.
             use_spectrograms (bool, optional): Whether the preprocessor should
@@ -41,6 +50,7 @@ class AudioPreprocessor:
         self.sampling_rate = sampling_rate
         self.target_length = target_length
         self.data_augmenter = data_augmenter
+        self.spectrogram_augmenter = spectrogram_augmenter
         self.n_augmentations = n_augmentations
         self.use_spectrograms = use_spectrograms
         self.n_mels = n_mels
@@ -51,7 +61,8 @@ class AudioPreprocessor:
         self,
         file_path_label_pairs: list[tuple[str, tuple[int, int]]] | list[str]
     ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
-        """Load and preprocess audio data from (filepath, label) pairs.
+        """
+        Load and preprocess audio data from (filepath, label) pairs.
 
         Args:
             file_path_label_pairs (list[Tuple[str, tuple[int, int]]] |
@@ -110,7 +121,8 @@ class AudioPreprocessor:
     def _process_single_file(
             self, file_path: str
     ) -> list[np.ndarray] | None:
-        """Load and preprocess the audio and extract the labels.
+        """
+        Load and preprocess the audio and extract the labels.
 
         If self.n_augmentations > 1, there will be more augmented versions for
             each file.
@@ -123,20 +135,30 @@ class AudioPreprocessor:
         raw_audio = self._load_audio(file_path)
         if raw_audio is None:
             return None
-        # Process the raw data
-        augmented = self._augment_data(raw_audio)
 
         processed = []
-        for augmented_audio in augmented:
-            standardized_audio = self._standardize_raw_length(augmented_audio)
 
-            if self.use_spectrograms:
-                # Process spectrograms
-                spec = self._create_log_mel_spectrogram(standardized_audio)
-                processed.append(spec)
-            else:
-                # Or just keep the waveform
-                processed.append(standardized_audio)
+        if self.use_spectrograms:
+            # Standardize spectrogram length beforehand
+            standardized_audio = self._standardize_raw_length(raw_audio)
+            spectrogram = self._create_log_mel_spectrogram(standardized_audio)
+
+            # Augment spectrogram instead of raw
+            augmented_specs = self._augment_data(spectrogram)
+
+            for spec in augmented_specs:
+                normalized_spec = self._normalize_spectrogram(spec)
+                processed.append(normalized_spec)
+
+        else:
+            # Augment raw waveform
+            augmented_waveforms = self._augment_data(raw_audio)
+
+            for waveform in augmented_waveforms:
+                # Here the augmentation can change raw length
+                standardized = self._standardize_raw_length(waveform)
+                normalized = self._normalize_waveform(standardized)
+                processed.append(normalized)
 
         return processed
 
@@ -158,7 +180,8 @@ class AudioPreprocessor:
             return None
 
     def _create_log_mel_spectrogram(self, raw_audio: np.ndarray) -> np.ndarray:
-        """Create a log mel spectrogram from raw audio.
+        """
+        Create a log mel spectrogram from raw audio.
 
         The loudness in each spectrogram is normalized by its own
             maximum power value.
@@ -180,11 +203,13 @@ class AudioPreprocessor:
         # Put the values into a more manageble scale
         log_mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
         # Add an empty dimension at the start as it is just 2D not RGB
-        log_mel_spec[np.newaxis, :, :]  # (1, n_mels, time_frames)
+        # It should have shape (1, n_mels, time_frames)
+        log_mel_spec = log_mel_spec[np.newaxis, :, :]
         return log_mel_spec
 
     def _augment_data(self, data: np.ndarray) -> list[np.ndarray]:
-        """Augment either the raw audio or spectogram.
+        """
+        Augment either the raw audio or spectogram.
 
         It creates "self.n_augmentations" augmented versions of the data.
         Args:
@@ -197,11 +222,19 @@ class AudioPreprocessor:
                 augmented versions are placed together in a list. The original
                 version is always included before the augmented versions.
         """
-        if self.data_augmenter:
+        if self.use_spectrograms and self.spectrogram_augmenter:
+            # Spectrograms are used and must be augmented
+            augmented_versions = [self.spectrogram_augmenter(data)
+                                  for _ in range(self.n_augmentations)]
+            return [data] + augmented_versions  # Include original spectrogram
+
+        elif not self.use_spectrograms and self.data_augmenter:
+            # Raw audio is used and it must be augmented
             augmented_versions = [self.data_augmenter(data)
                                   for _ in range(self.n_augmentations)]
-            return [data] + augmented_versions  # Also add the original version
-        # Return without augmenting
+            return [data] + augmented_versions  # Include original raw waveform
+
+        # No augmentations are applied
         return [data]
 
     def _standardize_raw_length(self, audio: np.ndarray) -> np.ndarray:
@@ -225,3 +258,32 @@ class AudioPreprocessor:
             return audio[:self.target_length]
         # The audio is exactly the right length
         return audio
+
+    def _normalize_waveform(self, audio: np.ndarray) -> np.ndarray:
+        """
+        Devide the entire waveform by the loudest sound.
+
+        Args:
+            audio (np.ndarray): The raw input waveform.
+
+        Returns:
+            np.ndarray: The normalized waveform.
+        """
+        max_val = np.max(np.abs(audio))
+        return audio / max_val if max_val > 0 else audio
+
+    def _normalize_spectrogram(self, spec: np.ndarray) -> np.ndarray:
+        """
+        Scale the spectrogram values to a range of (0-1).
+
+        Args:
+            spec (np.ndarray): The spectrogram that needs normalizing.
+
+        Returns:
+            np.ndarray: The normalized spectrogram.
+        """
+        min_val = np.min(spec)
+        max_val = np.max(spec)
+        if max_val - min_val == 0:
+            return np.zeros_like(spec)  # Avoid division by zero
+        return (spec - min_val) / (max_val - min_val)

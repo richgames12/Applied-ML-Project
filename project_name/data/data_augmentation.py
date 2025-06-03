@@ -123,7 +123,8 @@ class SpectrogramAugmenter:
         time_mask_percentage: float = 0.2,
         freq_mask_prob: float = 0.5,
         time_mask_prob: float = 0.5,
-        noise_std: float = 0.01,
+        mask_value: float = -80,
+        noise_std: float = 1,
         noise_prob: float = 0.3,
         brightness_min: float = 0.9,
         brightness_max: float = 1.1,
@@ -138,6 +139,8 @@ class SpectrogramAugmenter:
             time_mask_percentage: Max % of time steps to mask
             freq_mask_prob: Probability to apply frequency masking
             time_mask_prob: Probability to apply time masking
+            mask_value: The value that is placed as a mask, -80 is correct for
+                log-mel spectrogram as it becomes zero after normalizing.
             noise_std: Standard deviation of Gaussian noise
             noise_prob: Probability to apply Gaussian noise
             brightness_min: Minimum brightness scaling factor
@@ -148,6 +151,7 @@ class SpectrogramAugmenter:
         self.time_mask_percentage = time_mask_percentage
         self.freq_mask_prob = freq_mask_prob
         self.time_mask_prob = time_mask_prob
+        self.mask_value = mask_value
         self.noise_std = noise_std
         self.noise_prob = noise_prob
         self.brightness_min = brightness_min
@@ -173,7 +177,7 @@ class SpectrogramAugmenter:
             max_width = int(self.freq_mask_percentage * n_mels)
             width = random.randint(0, max_width)
             start = random.randint(0, max(0, n_mels - width))
-            augmented[0, start:start + width, :] = 0
+            augmented[0, start:start + width, :] = self.mask_value
 
         # Time Masking
         if random.random() < self.time_mask_prob:
@@ -181,7 +185,7 @@ class SpectrogramAugmenter:
             max_width = int(self.time_mask_percentage * n_frames)
             width = random.randint(0, max_width)
             start = random.randint(0, max(0, n_frames - width))
-            augmented[0, :, start:start + width] = 0
+            augmented[0, :, start:start + width] = self.mask_value
 
         # Gaussian Noise
         if random.random() < self.noise_prob:
