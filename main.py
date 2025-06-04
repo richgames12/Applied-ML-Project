@@ -23,6 +23,10 @@ if __name__ == "__main__":
     np.random.seed(seed)
     random.seed(seed)
 
+    # Toggle evaluation
+    evaluate_mfcc = True
+    evaluate_spec = False
+
     # ____________________________________________
     #                 Data Loading (MFCC)
     # ____________________________________________
@@ -134,7 +138,7 @@ if __name__ == "__main__":
     #              Model Evaluation
     # ____________________________________________
 
-    if test_features.shape[0] > 0:
+    if evaluate_mfcc and test_features.shape[0] > 0:
         print("Evaluating Emotion Model")
         pred_emotion_labels = multiclass_emotion_svm.predict(test_features)
 
@@ -157,6 +161,7 @@ if __name__ == "__main__":
             title_suffix="Intensity Recognition SVM"
         )
 
+    if evaluate_spec and spec_test_flat.shape[0] > 0:
         print("Evaluating Spectrogram Emotion Model")
         pred_spec_emotion = spec_emotion_svm.predict(spec_test_flat)
 
@@ -168,5 +173,5 @@ if __name__ == "__main__":
             title_suffix="Spectrogram-based Emotion SVM"
         )
 
-    else:
-        print("No test data available for evaluation.")
+    if not (evaluate_mfcc or evaluate_spec):
+        print("Model evaluation skipped.")
