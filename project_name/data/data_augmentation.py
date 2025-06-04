@@ -1,4 +1,5 @@
 import numpy as np
+import random
 from audiomentations import (
     Compose,
     AddGaussianNoise,
@@ -77,7 +78,7 @@ class RawAudioAugmenter:
         self.forward_shift = forward_shift
         self.shift_probability = shift_probability
 
-    def augment_raw_file(self, audio_data: np.ndarray) -> np.ndarray:
+    def __call__(self, audio_data: np.ndarray) -> np.ndarray:
         """
         Augment the raw audio.
 
@@ -113,3 +114,87 @@ class RawAudioAugmenter:
                   p=self.shift_probability)
         ])
         return augment(samples=audio_data, sample_rate=self.sampling_rate)
+
+
+class SpectrogramAugmenter:
+    def __init__(
+        self,
+        freq_mask_percentage: float = 0.15,
+        time_mask_percentage: float = 0.2,
+        freq_mask_prob: float = 0.5,
+        time_mask_prob: float = 0.5,
+        mask_value: float = -80,
+        noise_std: float = 1,
+        noise_prob: float = 0.3,
+        brightness_min: float = 0.9,
+        brightness_max: float = 1.1,
+        brightness_prob: float = 0.3
+    ):
+        """
+        Augment spectrograms with a variety of effects.
+        All percentages are fractions (e.g., 0.2 = 20%)
+
+        Args:
+            freq_mask_percentage: Max % of mel bins to mask
+            time_mask_percentage: Max % of time steps to mask
+            freq_mask_prob: Probability to apply frequency masking
+            time_mask_prob: Probability to apply time masking
+            mask_value: The value that is placed as a mask, -80 is correct for
+                log-mel spectrogram as it becomes zero after normalizing.
+            noise_std: Standard deviation of Gaussian noise
+            noise_prob: Probability to apply Gaussian noise
+            brightness_min: Minimum brightness scaling factor
+            brightness_max: Maximum brightness scaling factor
+            brightness_prob: Probability to scale brightness
+        """
+        self.freq_mask_percentage = freq_mask_percentage
+        self.time_mask_percentage = time_mask_percentage
+        self.freq_mask_prob = freq_mask_prob
+        self.time_mask_prob = time_mask_prob
+        self.mask_value = mask_value
+        self.noise_std = noise_std
+        self.noise_prob = noise_prob
+        self.brightness_min = brightness_min
+        self.brightness_max = brightness_max
+        self.brightness_prob = brightness_prob
+
+    def __call__(self, spectrogram: np.ndarray) -> np.ndarray:
+        """
+        Apply all augmentations to a single spectrogram.
+
+        Args:
+            spectrogram: Spectrogram of shape (1, n_mels, time_frames)
+
+        Returns:
+            np.ndarray: Augmented spectrogram
+        """
+        augmented = np.copy(spectrogram)
+        _, n_mels, n_frames = augmented.shape
+
+        # Frequency Masking
+        if random.random() < self.freq_mask_prob:
+            # Percentage based so find actual n_mels
+            max_width = int(self.freq_mask_percentage * n_mels)
+            width = random.randint(0, max_width)
+            start = random.randint(0, max(0, n_mels - width))
+            augmented[0, start:start + width, :] = self.mask_value
+
+        # Time Masking
+        if random.random() < self.time_mask_prob:
+            # Percentage based so find actual n_frames
+            max_width = int(self.time_mask_percentage * n_frames)
+            width = random.randint(0, max_width)
+            start = random.randint(0, max(0, n_frames - width))
+            augmented[0, :, start:start + width] = self.mask_value
+
+        # Gaussian Noise
+        if random.random() < self.noise_prob:
+            noise = np.random.normal(0, self.noise_std, augmented.shape)
+            augmented += noise
+
+        # Brightness Scaling
+        if random.random() < self.brightness_prob:
+            factor = random.uniform(self.brightness_min, self.brightness_max)
+            augmented *= factor
+
+        return augmented
