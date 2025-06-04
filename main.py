@@ -1,39 +1,17 @@
 from download_dataset import DATASET_DIR
 from project_name.data.data_file_splitting import DataFileSplitter
 from project_name.data.data_preprocessing import AudioPreprocessor
-from project_name.data.data_augmentation import RawAudioAugmenter
+from project_name.data.data_augmentation import (
+    RawAudioAugmenter, SpectrogramAugmenter
+)
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from sklearn.multiclass import OneVsRestClassifier
 from project_name.evaluation.model_evaluation import ModelEvaluator
 from sklearn.decomposition import PCA
-from scipy.special import softmax
-import numpy as np
-from sklearn.multiclass import OneVsRestClassifier
-
-def predict_softmax_proba(model: OneVsRestClassifier, X: np.ndarray) -> np.ndarray:
-    """
-    Computes softmax-based class probability estimates from a trained
-        OneVsRestClassifier using its decision function scores.
-
-    Args:
-        model (OneVsRestClassifier): A trained OneVsRestClassifier model
-            wrapping an SVM (with or without probability=True).
-        X (np.ndarray): Test data input features (2D array of shape
-            [n_samples, n_features]).
-
-    Returns:
-        np.ndarray: A 2D array of softmax-transformed decision scores,
-            representing class probabilities per sample.
-            Shape: [n_samples, n_classes].
-            Example: np.array([[0.1, 0.7, 0.2], [0.4, 0.3, 0.3]])
-    """
-    decision_scores = model.decision_function(X)  # shape: (n_samples, n_classes)
-    softmax_probs = softmax(decision_scores, axis=1)
-    return softmax_probs
-
 import numpy as np
 import random
+
 
 EMOTION_LABELS = {
     1: 'neutral', 2: 'calm', 3: 'happy', 4: 'sad',
@@ -110,33 +88,36 @@ if __name__ == "__main__":
 
     # Initialize and train the SVM for emotion recognition
     # Use a OneVsRest version to increase the models accuracy
-    base_emotion_svm = AudioFeatureSVM(
-        probability=True, regularization_parameter=10, seed=seed
-    )
+    print("Training Emotion MFCC SVM.")
+    mfcc_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
+        regularization_parameter=10, seed=seed
+    ))
+    mfcc_emotion_svm.fit(train_features, train_emotion_labels)
+    print("Emotion MFCC SVM trained.")
 
-    base_intensity_svm = AudioFeatureSVM(
-        probability=False, regularization_parameter=10, seed=seed
-    )
-
-    print("Training Emotion SVM.")
-    multiclass_emotion_svm = OneVsRestClassifier(base_emotion_svm)
-    multiclass_emotion_svm.fit(train_features, train_emotion_labels)
-    print("Emotion SVM trained.")
-
-    print("Training Intensity SVM.")
+    print("Training Intensity MFCC SVM.")
     # Only two classes so no OneVsRest
-    base_intensity_svm.fit(train_features, train_intensity_labels)
-    print("Intensity SVM trained.")
+    mfcc_intensity_svm = AudioFeatureSVM(
+        regularization_parameter=10, seed=seed
+    )
+    mfcc_intensity_svm.fit(train_features, train_intensity_labels)
+    print("Intensity MFCC SVM trained.")
 
-    base_intensity_svm.save(model_name="intensity_svm.joblib")
+    mfcc_intensity_svm.save(model_name="intensity_svm.joblib")
 
     # ____________________________________________
-    #         Spectrogram Feature Extraction
+    #         Spectrogram Preprocessing
     # ____________________________________________
+    # Masks don't seem to work really well with PCA
+    spectrogram_augmenter = SpectrogramAugmenter(
+        freq_mask_prob=0, time_mask_prob=0, noise_std=0.5
+    )
 
     # Initialize the spectrogram-based preprocessor
     spectrogram_preprocessor = AudioPreprocessor(
-        data_augmenter=None, use_spectrograms=True, n_augmentations=0
+        spectrogram_augmenter=spectrogram_augmenter,
+        use_spectrograms=True,
+        n_augmentations=3
     )
 
     # Process spectrogram-based training and test data
@@ -157,80 +138,95 @@ if __name__ == "__main__":
     # ____________________________________________
 
     # Reduce feature dimensionality to improve SVM efficiency
-    pca = PCA(n_components=200)
+    pca = PCA(n_components=200, random_state=seed)
     spec_train_reduced = pca.fit_transform(spec_train_flat)
     spec_test_reduced = pca.transform(spec_test_flat)
 
     # Train spectrogram-based emotion SVM
     print("Training Spectrogram-based Emotion SVM.")
     spec_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
-        probability=True, regularization_parameter=10, seed=seed))
+        regularization_parameter=10, seed=seed))
     spec_emotion_svm.fit(spec_train_reduced, spec_train_emotion_labels)
     print("Spectrogram-based Emotion SVM trained.")
 
     # Train spectrogram-based intensity SVM
     print("Training Spectrogram-based Intensity SVM.")
     spec_intensity_svm = AudioFeatureSVM(
-        probability=False, regularization_parameter=10, seed=seed
-    )
+        regularization_parameter=10, seed=seed)
     spec_intensity_svm.fit(spec_train_reduced, spec_train_intensity_labels)
     print("Spectrogram-based Intensity SVM trained.")
 
     # ____________________________________________
-    #              Model Evaluation
+    #              Model Evaluation MFCC
     # ____________________________________________
 
-    if evaluate_mfcc and test_features.shape[0] > 0:
-        print("Evaluating Emotion Model")
-        pred_emotion_labels = multiclass_emotion_svm.predict(test_features)
+    # Intitialize the evaluators
+    emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
+    intensity_evaluator = ModelEvaluator(class_labels=INTENSITY_LABELS)
 
-        # Initialize the emotion evaluator
-        emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
+    if evaluate_mfcc and test_features.shape[0] > 0:
+        print("Evaluating MFCC Emotion Model")
+        # Step 1 Predict labels and compute softmax-based probability estimates
+        pred_emotion_labels = mfcc_emotion_svm.predict(test_features)
+        probs_mfcc_emotion = mfcc_emotion_svm.predict_proba(test_features)
+
+        # Step 2 Evaluate the predictions
+        emotion_evaluator.evaluate_uncertainty_metrics(
+            class_probabilities=probs_mfcc_emotion,
+            title_suffix="MFCC emotion SVM"
+        )
         emotion_evaluator.evaluate_from_predictions(
             labels_true=test_emotion_labels,
             labels_pred=pred_emotion_labels,
-            title_suffix="Emotion Recognition SVM"
+            title_suffix="Emotion Recognition SVM MFCC"
         )
 
-        print("Evaluating Intensity Model")
-        pred_intesity_labels = base_intensity_svm.predict(test_features)
+        print("Evaluating Intensity MFCC Model")
+        # Step 1 Predict labels and compute softmax-based probability estimates
+        pred_intesity_labels = mfcc_intensity_svm.predict(test_features)
+        probs_mfcc_intensity = mfcc_intensity_svm.predict_proba(test_features)
 
-        # Initialize the intensity evaluator
-        intensity_evaluator = ModelEvaluator(class_labels=INTENSITY_LABELS)
+        # Step 2 Evaluate the predictions
+        intensity_evaluator.evaluate_uncertainty_metrics(
+            class_probabilities=probs_mfcc_intensity,
+            title_suffix="MFCC intensity SVM"
+        )
         intensity_evaluator.evaluate_from_predictions(
             labels_true=test_intensity_labels,
             labels_pred=pred_intesity_labels,
-            title_suffix="Intensity Recognition SVM"
+            title_suffix="Intensity Recognition SVM MFCC"
         )
 
     if evaluate_spec and spec_test_flat.shape[0] > 0:
         print("Evaluating Spectrogram Emotion Model")
+        # Step 1 Predict labels and compute softmax-based probability estimates
         pred_spec_emotion = spec_emotion_svm.predict(spec_test_reduced)
+        probs_spec_emotion = spec_emotion_svm.predict_proba(spec_test_reduced)
 
-        # Compute softmax-based probability estimates
-        probs = predict_softmax_proba(spec_emotion_svm, spec_test_reduced)
-        # Compute uncertainty metrics
-        entropy = -np.sum(probs * np.log(probs + 1e-10), axis=1)
-        confidence = np.max(probs, axis=1)
-
-        # Print average uncertainty stats (optional)
-        print(f"Average entropy: {np.mean(entropy):.4f}")
-        print(f"Average confidence: {np.mean(confidence):.4f}")
-
-        # Initialize the spectrogram-based emotion evaluator
-        spec_emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
-        spec_emotion_evaluator.evaluate_from_predictions(
+        # Step 2 Evaluate the predictions
+        emotion_evaluator.evaluate_uncertainty_metrics(
+            class_probabilities=probs_spec_emotion,
+            title_suffix="Spectrogram emotion SVM"
+        )
+        emotion_evaluator.evaluate_from_predictions(
             labels_true=spec_test_emotion_labels,
             labels_pred=pred_spec_emotion,
             title_suffix="Spectrogram-based Emotion SVM"
         )
 
         print("Evaluating Spectrogram Intensity Model")
+        # Step 1 Predict labels and compute softmax-based probability estimates
         pred_spec_intensity = spec_intensity_svm.predict(spec_test_reduced)
+        probs_spec_intensity = spec_intensity_svm.predict_proba(
+            spec_test_reduced
+        )
 
-        # Initialize the spectrogram-based intensity evaluator
-        spec_intensity_evaluator = ModelEvaluator(class_labels=INTENSITY_LABELS)
-        spec_intensity_evaluator.evaluate_from_predictions(
+        # Step 2 Evaluate the predictions
+        intensity_evaluator.evaluate_uncertainty_metrics(
+            class_probabilities=probs_spec_intensity,
+            title_suffix="Spectrogram intensity SVM"
+        )
+        intensity_evaluator.evaluate_from_predictions(
             labels_true=spec_test_intensity_labels,
             labels_pred=pred_spec_intensity,
             title_suffix="Spectrogram-based Intensity SVM"
