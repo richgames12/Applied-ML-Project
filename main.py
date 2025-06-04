@@ -7,6 +7,30 @@ from project_name.models.audio_feature_svm import AudioFeatureSVM
 from sklearn.multiclass import OneVsRestClassifier
 from project_name.evaluation.model_evaluation import ModelEvaluator
 from sklearn.decomposition import PCA
+from scipy.special import softmax
+import numpy as np
+from sklearn.multiclass import OneVsRestClassifier
+
+def predict_softmax_proba(model: OneVsRestClassifier, X: np.ndarray) -> np.ndarray:
+    """
+    Computes softmax-based class probability estimates from a trained
+        OneVsRestClassifier using its decision function scores.
+
+    Args:
+        model (OneVsRestClassifier): A trained OneVsRestClassifier model
+            wrapping an SVM (with or without probability=True).
+        X (np.ndarray): Test data input features (2D array of shape
+            [n_samples, n_features]).
+
+    Returns:
+        np.ndarray: A 2D array of softmax-transformed decision scores,
+            representing class probabilities per sample.
+            Shape: [n_samples, n_classes].
+            Example: np.array([[0.1, 0.7, 0.2], [0.4, 0.3, 0.3]])
+    """
+    decision_scores = model.decision_function(X)  # shape: (n_samples, n_classes)
+    softmax_probs = softmax(decision_scores, axis=1)
+    return softmax_probs
 
 import numpy as np
 import random
@@ -182,6 +206,16 @@ if __name__ == "__main__":
     if evaluate_spec and spec_test_flat.shape[0] > 0:
         print("Evaluating Spectrogram Emotion Model")
         pred_spec_emotion = spec_emotion_svm.predict(spec_test_reduced)
+
+        # Compute softmax-based probability estimates
+        probs = predict_softmax_proba(spec_emotion_svm, spec_test_reduced)
+        # Compute uncertainty metrics
+        entropy = -np.sum(probs * np.log(probs + 1e-10), axis=1)
+        confidence = np.max(probs, axis=1)
+
+        # Print average uncertainty stats (optional)
+        print(f"Average entropy: {np.mean(entropy):.4f}")
+        print(f"Average confidence: {np.mean(confidence):.4f}")
 
         # Initialize the spectrogram-based emotion evaluator
         spec_emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
