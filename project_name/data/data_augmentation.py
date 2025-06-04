@@ -119,15 +119,15 @@ class RawAudioAugmenter:
 class SpectrogramAugmenter:
     def __init__(
         self,
-        freq_mask_percentage: float = 0.15,
-        time_mask_percentage: float = 0.2,
+        freq_mask_percentage: float = 0.1,
+        time_mask_percentage: float = 0.15,
         freq_mask_prob: float = 0.5,
         time_mask_prob: float = 0.5,
         mask_value: float = -80,
-        noise_std: float = 1,
+        noise_std: float = 0.5,
         noise_prob: float = 0.3,
-        brightness_min: float = 0.9,
-        brightness_max: float = 1.1,
+        brightness_min: float = 0.8,
+        brightness_max: float = 1.2,
         brightness_prob: float = 0.3
     ):
         """
