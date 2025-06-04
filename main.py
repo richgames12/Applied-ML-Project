@@ -6,6 +6,8 @@ from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from sklearn.multiclass import OneVsRestClassifier
 from project_name.evaluation.model_evaluation import ModelEvaluator
+from sklearn.decomposition import PCA
+
 
 import numpy as np
 import random
@@ -25,7 +27,7 @@ if __name__ == "__main__":
 
     # Toggle evaluation
     evaluate_mfcc = True
-    evaluate_spec = False
+    evaluate_spec = True
 
     # ____________________________________________
     #                 Data Loading (MFCC)
@@ -127,11 +129,21 @@ if __name__ == "__main__":
     spec_train_flat = spec_train_data.reshape(spec_train_data.shape[0], -1)
     spec_test_flat = spec_test_data.reshape(spec_test_data.shape[0], -1)
 
+    # ____________________________________________
+    #       Dimensionality Reduction (PCA)
+    # ____________________________________________
+
+    # Reduce feature dimensionality to improve SVM efficiency
+    pca = PCA(n_components=100)  # You can try 50, 100, 200
+    spec_train_reduced = pca.fit_transform(spec_train_flat)
+    spec_test_reduced = pca.transform(spec_test_flat)
+
     # Train spectrogram-based SVM
     print("Training Spectrogram-based Emotion SVM.")
     spec_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
         probability=True, regularization_parameter=10, seed=seed))
-    spec_emotion_svm.fit(spec_train_flat, spec_train_emotion_labels)
+    #spec_emotion_svm.fit(spec_train_flat, spec_train_emotion_labels) replace for use with pca
+    spec_emotion_svm.fit(spec_train_reduced, spec_train_emotion_labels)
     print("Spectrogram-based Emotion SVM trained.")
 
     # ____________________________________________
@@ -163,7 +175,9 @@ if __name__ == "__main__":
 
     if evaluate_spec and spec_test_flat.shape[0] > 0:
         print("Evaluating Spectrogram Emotion Model")
-        pred_spec_emotion = spec_emotion_svm.predict(spec_test_flat)
+        #pred_spec_emotion = spec_emotion_svm.predict(spec_test_flat) replaced with next line to use with pca
+        pred_spec_emotion = spec_emotion_svm.predict(spec_test_reduced)
+
 
         # Initialize the spectrogram-based emotion evaluator
         spec_emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
