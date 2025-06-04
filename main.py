@@ -24,14 +24,14 @@ if __name__ == "__main__":
     random.seed(seed)
 
     # ____________________________________________
-    #                 Data Loading
+    #                 Data Loading (MFCC)
     # ____________________________________________
     # Initialize the data file splitter
     splitter = DataFileSplitter(dataset_path=DATASET_DIR, seed=seed)
     train_data, val_data, test_data = splitter.get_data_splits_copy()
 
     # ____________________________________________
-    #              Data Preprocessing
+    #              Data Preprocessing (MFCC)
     # ____________________________________________
 
     # Initialize the raw audio augmenter
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     print("Test data processed.")
 
     # ____________________________________________
-    #             Feature Extraction
+    #             Feature Extraction (MFCC)
     # ____________________________________________
 
     # Initialize the audio feature extractor
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     print("Test features extracted.")
 
     # ____________________________________________
-    #               Model Training
+    #               Model Training (MFCC)
     # ____________________________________________
 
     # Shuffle the data before training the SVM
@@ -102,6 +102,35 @@ if __name__ == "__main__":
     base_intensity_svm.save(model_name="intensity_svm.joblib")
 
     # ____________________________________________
+    #         Spectrogram Feature Extraction
+    # ____________________________________________
+
+    # Initialize the spectrogram-based preprocessor
+    spectrogram_preprocessor = AudioPreprocessor(
+        data_augmenter=None, use_spectrograms=True, n_augmentations=0
+    )
+
+    # Process spectrogram-based training and test data
+    spec_train_data, spec_train_emotion_labels, _ = \
+        spectrogram_preprocessor.process_all(train_data)
+    print("Spectrogram training data processed.")
+
+    spec_test_data, spec_test_emotion_labels, _ = \
+        spectrogram_preprocessor.process_all(test_data)
+    print("Spectrogram test data processed.")
+
+    # Flatten spectrograms for SVM input
+    spec_train_flat = spec_train_data.reshape(spec_train_data.shape[0], -1)
+    spec_test_flat = spec_test_data.reshape(spec_test_data.shape[0], -1)
+
+    # Train spectrogram-based SVM
+    print("Training Spectrogram-based Emotion SVM.")
+    spec_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
+        probability=True, regularization_parameter=10, seed=seed))
+    spec_emotion_svm.fit(spec_train_flat, spec_train_emotion_labels)
+    print("Spectrogram-based Emotion SVM trained.")
+
+    # ____________________________________________
     #              Model Evaluation
     # ____________________________________________
 
@@ -127,5 +156,17 @@ if __name__ == "__main__":
             labels_pred=pred_intesity_labels,
             title_suffix="Intensity Recognition SVM"
         )
+
+        print("Evaluating Spectrogram Emotion Model")
+        pred_spec_emotion = spec_emotion_svm.predict(spec_test_flat)
+
+        # Initialize the spectrogram-based emotion evaluator
+        spec_emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
+        spec_emotion_evaluator.evaluate_from_predictions(
+            labels_true=spec_test_emotion_labels,
+            labels_pred=pred_spec_emotion,
+            title_suffix="Spectrogram-based Emotion SVM"
+        )
+
     else:
         print("No test data available for evaluation.")
