@@ -1,13 +1,15 @@
 # Create lightweight python image
 FROM python:3.12.7-slim
 
-RUN apt-get update
-RUN apt-get install -y \
+RUN apt-get update && \
+    apt-get install -y \
     # Packages required for libraries which use C (Numpy etc.)
     build-essential \
     # Packages required for librosa
     libsndfile1 \
-    libasound2-dev
+    libasound2-dev && \
+    # Clean up
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Specify the working directory
 WORKDIR /code
