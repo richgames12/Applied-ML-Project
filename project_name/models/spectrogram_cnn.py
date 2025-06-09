@@ -121,7 +121,7 @@ class MultiheadEmotionCNN(nn.Module):
         return emotion_predictions, intensity_predictions
 
 
-    def fit_model(self, dataloader, labels:tuple, epochs:int):
+    def fit_model(self, dataloader, epochs:int):
         """
         We fit the model to dual-task dataset.
 
@@ -138,23 +138,19 @@ class MultiheadEmotionCNN(nn.Module):
 
         #We can pass these as parameters to the train method but im setting them 
         #here for simplicity
-        optimizer = optim.adam()
-        
-        emotion_labels, intensity_labels = labels
-
+        optimizer = optim.Adam(self.parameters())
+        loss_func = nn.CrossEntropyLoss()
         self.train()
+        train_loss = [] 
+        val_loss = []
         for epoch in range(epochs):
+            total_loss = 0
             for features, emotion_labels, intensity_labels in dataloader:
-                loss_sum = 0
-                emotion_logits, intensity_logits = self.predict(features)
-                loss_sum += nn.CrossEntropyLoss(emotion_logits, emotion_labels)
-                loss_sum += nn.CrossEntropyLoss(intensity_logits, intensity_labels)
+                emotion_logits, intensity_logits = self(features)
+                loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
                 loss_sum.backward()
                 optimizer.step()
-
-                
-            print(f'Epoch {epoch} Loss {loss_sum.item()}')
-
+        return None
 
     def cross_val_fit(self, test_dataloader, train_dataloader, epochs:int) -> tuple:
             """

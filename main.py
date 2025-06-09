@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     # Process spectrogram-based training and test data
     spec_train_data, spec_train_emotion_labels, spec_train_intensity_labels = \
-        spectrogram_preprocessor.process_all(train_data[:30])
+        spectrogram_preprocessor.process_all(train_data[:50]) #Lowered the sample count just for testing
     print("Spectrogram training data processed.")
 
 
@@ -70,6 +70,7 @@ if __name__ == "__main__":
     # ____________________________________________
     #              CNN eval test
     # ____________________________________________
+
     multi_task_cnn = MultiheadEmotionCNN()
     all_labels = spec_train_emotion_labels, spec_train_intensity_labels
     eval_obj = TrainAndEval(spec_train_data, all_labels, 2)
