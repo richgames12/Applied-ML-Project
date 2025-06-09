@@ -1,10 +1,7 @@
-from project_name.models.audio_feature_svm import AudioFeatureSVM
-from project_name.data.data_preprocessing import AudioPreprocessor
-from project_name.features.audio_feature_extractor import AudioFeatureExtractor
-from main import INTENSITY_LABELS, EMOTION_LABELS
-
-from typing import Annotated, Optional, Union
 import os
+from pathlib import Path
+from typing import Annotated, Optional, Union
+from uuid import uuid4
 
 from fastapi import (
     FastAPI,
@@ -15,6 +12,16 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import HTMLResponse
+
+from main import EMOTION_LABELS, INTENSITY_LABELS
+from project_name.data.data_preprocessing import AudioPreprocessor
+from project_name.features.audio_feature_extractor import AudioFeatureExtractor
+from project_name.models.audio_feature_svm import AudioFeatureSVM
+
+
+# This is where the audio uploaded by the user will be stored.
+UPLOAD_DIR = Path("tmp/user_audio")
+MODEL_DIR = Path("project_name/saved_models")
 
 app = FastAPI()
 
@@ -100,6 +107,29 @@ STYLE = """
 """
 
 
+# This thing runs before and after every request to manage the session ID.
+# It is used to separate uploaded files by user.
+@app.middleware("http")
+async def assign_session_id(request: Request, call_next):
+    """
+    Is called before and after every reqyest to manage the session ID. This id
+    is used to separate uploaded files by user.
+    """
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        # Generate a new UUID for the session (just random series of letters)
+        session_id = str(uuid4())
+
+    # Store the session ID on the request state
+    request.state.session_id = session_id
+
+    response = await call_next(request)  # Here, the actual request is handled.
+
+    # Set the session_id as an HTTP-only cookie in the response.
+    response.set_cookie("session_id", session_id, httponly=True)
+    return response
+
+
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
     content = f"""
@@ -125,10 +155,8 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 @app.get("/")
 async def main():
     try:
-        model_options = os.listdir(f"project_name{os.sep}saved_models")
-        model_options = [
-            f.split(".")[0] for f in model_options if f.endswith(".joblib")
-        ]
+        # Find all models
+        model_options = [f.stem for f in MODEL_DIR.glob("*.joblib")]
     except FileNotFoundError:
         model_options = []
         # If the directory does not exist, we can create it
@@ -178,6 +206,7 @@ async def main():
 
 @app.post("/uploadfiles/")
 async def create_upload_files(
+    request: Request,
     files: Annotated[
         list[UploadFile], File(description="Multiple files as UploadFile")
     ],
@@ -188,25 +217,34 @@ async def create_upload_files(
     Validates and saves .wav files to the 'uploadedfiles' directory.
     Rejects non-.wav files or duplicates.
     """
-    filenames = [file.filename for file in files]
+
+    # The middleware will have been called first and connected a session id
+    # to the current state. This id is used to create user specific folders for
+    # uploads by the user.
+    session_id = request.state.session_id
+
+    # Ensure the directory exists
+    session_upload_dir = UPLOAD_DIR / session_id
+    session_upload_dir.mkdir(parents=True, exist_ok=True)
+
+    filenames = []
     for file in files:
         if file.filename[-4:] != ".wav":
             raise HTTPException(
                 status_code=400,
                 detail=f"File {file.filename} is not a .wav file.",
             )
-        # Ensure the directory exists
-        if not os.path.exists("uploadedfiles"):
-            os.makedirs("uploadedfiles")
-        # Save the file
-        if os.path.exists(f"uploadedfiles{os.sep}{file.filename}"):
+        file_path = session_upload_dir / file.filename
+        if file_path.exists():
             raise HTTPException(
                 status_code=400,
                 detail=f"File {file.filename} already exists.",
             )
-        with open(f"uploadedfiles{os.sep}{file.filename}", "wb") as f:
-            content = await file.read()
-            f.write(content)
+        # Save the file
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+        filenames.append(file.filename)
+
     content = f"""
     <style>
         {STYLE}
@@ -229,15 +267,19 @@ async def create_upload_files(
 
 
 @app.get("/uploadedfiles/", response_class=HTMLResponse)
-async def list_uploaded_files():
+async def list_uploaded_files(request: Request):
     """
     List uploaded audio files.
 
     Displays all files currently stored in the 'uploadedfiles' directory.
     """
+
+    session_id = request.state.session_id
+    session_upload_dir = UPLOAD_DIR / session_id
+
     files = []
-    if os.path.exists("uploadedfiles"):
-        files = os.listdir("uploadedfiles")
+    if session_upload_dir.exists():
+        files = os.listdir(session_upload_dir)
     file_list = (
         "<ul>" + "".join(f"<li>{fname}</li>" for fname in files) + "</ul>"
         if files
@@ -262,7 +304,7 @@ async def list_uploaded_files():
 
 # User select model from home to use
 @app.post("/select_model/", response_class=HTMLResponse)
-async def select_model(model: Optional[str] = Form(None)):
+async def select_model(request: Request, model: Optional[str] = Form(None)):
     """
     Select a trained model for prediction.
 
@@ -272,9 +314,16 @@ async def select_model(model: Optional[str] = Form(None)):
         raise HTTPException(
             status_code=400, detail="No model selected. Please select a model."
         )
-    audio_files = os.listdir("uploadedfiles")
-    if os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
-        # Here you can implement logic to set the selected model
+
+    session_id = request.state.session_id
+    session_upload_dir = UPLOAD_DIR / session_id
+    # Ensure the directory exists
+    session_upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # There can be 0 files
+    audio_files = os.listdir(session_upload_dir)
+    model_path = MODEL_DIR / f"{model}.joblib"
+    if model_path.exists():
         content = f"""
         <style>
             {STYLE}
@@ -311,6 +360,7 @@ async def select_model(model: Optional[str] = Form(None)):
 
 @app.post("/feature_selection/", response_class=HTMLResponse)
 async def feature_selection(
+    request: Request,
     model: str = Form(...),
     audio_files: Optional[list[str]] = Form(None),
 ):
@@ -319,22 +369,27 @@ async def feature_selection(
 
     Validates files and prepares data for prediction.
     """
+
+    session_id = request.state.session_id
+    session_upload_dir = UPLOAD_DIR / session_id
+
     if not audio_files:
         raise HTTPException(
             status_code=400, detail="No audio files selected for feature selection."
         )
-    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+
+    model_path = MODEL_DIR / f"{model}.joblib"
+    if not model_path.exists():
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
         )
     for audio_file in audio_files:
-        if not os.path.exists(f"uploadedfiles{os.sep}{audio_file}"):
+        if not (session_upload_dir / audio_file).exists():
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
 
-    # Here you would implement the feature selection logic
     content = f"""
     <body>
     <style>
@@ -361,12 +416,12 @@ async def feature_selection(
     </div>
     </body>
     """
-    # For now, we just return a success message
     return HTMLResponse(content=content)
 
 
 @app.post("/predict/", response_class=HTMLResponse)
 async def predict(
+    request: Request,
     model: str = Form(...),
     audio_files: Union[list[str], str] = Form(...),
 ):
@@ -375,27 +430,30 @@ async def predict(
 
     Loads the selected model and extracted features to run predictions.
     """
+
+    session_id = request.state.session_id
+    session_upload_dir = UPLOAD_DIR / session_id
+
     # Normalize audio_files to a list
     if isinstance(audio_files, str):
         audio_files = [audio_files]
 
-    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+    model_path = MODEL_DIR / f"{model}.joblib"
+    if not model_path.exists():
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
         )
 
     for audio_file in audio_files:
-        if not os.path.exists(f"uploadedfiles{os.sep}{audio_file}"):
+        if not (session_upload_dir / audio_file).exists():
             raise HTTPException(
                 status_code=404, detail=f"Audio file {audio_file} not found."
             )
 
     match model:
         case "intensity_svm":
-            selected_model = AudioFeatureSVM.load(
-                f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
-            )
+            selected_model = AudioFeatureSVM.load(model_path)
             pre_processor = AudioPreprocessor(
                 sampling_rate=22050,
                 target_length=66150,
@@ -409,16 +467,19 @@ async def predict(
                 status_code=404, detail=f"Model {model} is not supported."
             )
 
+    # Collect the absolute paths to the audios
     all_paths = []
-    path_to_audios = os.path.join(os.getcwd(), "uploadedfiles")
+    path_to_audios = session_upload_dir.resolve()
 
     for audio_file in audio_files:
-        if not os.path.exists(os.path.join(path_to_audios, audio_file)):
+        full_file_path = path_to_audios / audio_file
+        if not full_file_path.exists():
             raise HTTPException(
                 status_code=404,
                 detail=f"Audio file {audio_file} not found in uploaded files.",
             )
-        all_paths.extend([os.path.join(path_to_audios, audio_file)])
+        # Preprocessing requires strings, not path objects
+        all_paths.extend([str(full_file_path)])
 
     processed_audios, _, _ = pre_processor.process_all(all_paths)
     if len(processed_audios) == 0:
@@ -448,7 +509,6 @@ async def predict(
                 status_code=404, detail=f"Model {model} is not supported."
             )
 
-    # Here you would implement the prediction logic
     content = f"""
     <body>
     <style>
@@ -469,5 +529,4 @@ async def predict(
     </div>
     </body>
     """
-    # For now, we just return a success message
     return HTMLResponse(content=content)
