@@ -14,7 +14,7 @@ class AudioFeatureSVM:
             kernel: str = "rbf",
             regularization_parameter: float = 1.0,
             gamma: str = "scale",
-            use_probabilities: bool = False,
+            probability: bool = False,
             seed: int | None = None
     ) -> None:
         """
@@ -27,7 +27,7 @@ class AudioFeatureSVM:
                 parameter to be used. Defaults to 1.0.
             gamma (str, optional): The kernel coefficient to be used. Defaults
                 to "scale".
-            use_probabilities: (bool, optional): If set to True, the model
+            probability: (bool, optional): If set to True, the model
                 will be trained with probability=True for the underlying SVC,
                 allowing access to Platt-scaled probabilities (slower
                 training). If False, training is faster, and predict_proba
@@ -39,7 +39,7 @@ class AudioFeatureSVM:
         self.kernel = kernel
         self.regularization_parameter = regularization_parameter
         self.gamma = gamma
-        self.use_probabilities = use_probabilities
+        self.use_probabilities = probability
         self.seed = seed
         self.type = "SVM"
 
