@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader, TensorDataset
 
 
 class MultiheadEmotionCNN(nn.Module):
@@ -52,13 +54,13 @@ class MultiheadEmotionCNN(nn.Module):
 
         # Shared fully connected layer
         self.dropout = nn.Dropout(0.3)
-        self.fc_shared = nn.Linear(64 * 16 * 16, 256)
+        self.fc_shared = nn.Linear(64 * 16 * 16, 512)
 
         # Emotion classification head
-        self.fc_emotion = nn.Linear(256, num_emotions)
+        self.fc_emotion = nn.Linear(512, num_emotions)
 
         # Intensity classification head
-        self.fc_intensity = nn.Linear(256, num_intensity)
+        self.fc_intensity = nn.Linear(512, num_intensity)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -113,44 +115,90 @@ class MultiheadEmotionCNN(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            emotion_logits, intensity_logits = self.forward(x)
+            emotion_logits, intensity_logits = self(x)
         
         emotion_predictions = torch.argmax(emotion_logits, dim=1)
         intensity_predictions = torch.argmax(intensity_logits, dim=1)
 
+
+
+
         return emotion_predictions, intensity_predictions
 
 
-#Keeping this outisde of the class because it makes more sense to add this to thre pipeline, 
-#seeing as we may want to use different types of training method, this uses stochastic gradient descent
-def fit_model(model, dataloader, epochs:int):
-    """
-    We fit the model to dual-task dataset.
+    def fit_model(self, dataloader, epochs:int):
+        """
+        We fit the model to dual-task dataset.
 
 
-    Args:
-        dataloader: pytorch dataloader that has train data and batch size
-        model: pytorch model
-        epochs: int number of epochs to train for
-        
+        Args:
+            dataloader: pytorch dataloader that has train data and batch size
+            model: pytorch model
+            epochs: int number of epochs to train for
+            
 
-    Returns:
+        Returns:
 
-    """
+        """
 
-    #We can pass these as parameters to the train method but im setting them 
-    #here for simplicity
-    optimizer = optim.adam()
-    
-    emotion_labels, intensity_labels = classes
+        #We can pass these as parameters to the train method but im setting them 
+        #here for simplicity
+        optimizer = optim.Adam(self.parameters())
+        loss_func = nn.CrossEntropyLoss()
+        self.train()
+        train_loss = [] 
+        val_loss = []
+        for epoch in range(epochs):
+            total_loss = 0
+            for features, emotion_labels, intensity_labels in dataloader:
+                emotion_logits, intensity_logits = self(features)
+                loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                loss_sum.backward()
+                optimizer.step()
+        return None
 
-    model.train()
-    for epoch in range(epochs):
-        for features, emotion_labels, intensity_labels in dataloader:
-            loss_sum = 0
-            emotion_logits, intensity_logits = model.forward(features)
-            loss_sum += nn.CrossEntropyLoss(emotion_logits, emotion_labels)
-            loss_sum += nn.CrossEntropyLoss(intensity_logits, intensity_labels)
-            loss_sum.backward()
-            optimizer.step()
-        print(f'Epoch {epoch} Loss {loss_sum.item()}')
+    def cross_val_fit(self, test_dataloader: DataLoader, train_dataloader: DataLoader, writer: None | SummaryWriter , epochs:int) -> None:
+            """
+            We fit the model to dual-task dataset.
+
+
+            Args:
+                dataloader: pytorch dataloader that has train data and batch size
+                model: pytorch model
+                writer: tesnorboard writer (if applicable, if not: None)
+                epochs: int number of epochs to train for
+
+                
+
+            Returns:
+                None  
+            """
+
+            #We can pass these as parameters to the train method but im setting them 
+            #here for simplicity
+            optimizer = optim.Adam(self.parameters())
+            loss_func = nn.CrossEntropyLoss()
+            self.train()
+            for epoch in range(epochs):
+                total_train_loss = 0
+                for features, emotion_labels, intensity_labels in train_dataloader:
+                    emotion_logits, intensity_logits = self(features)
+                    loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                    loss_sum.backward()
+                    optimizer.step()
+                    total_train_loss += loss_sum.item()
+                    
+                with torch.no_grad():
+                    total_test_loss = 0
+                    for features, emotion_labels, intensity_labels in test_dataloader:
+                        emotion_logits, intensity_logits = self(features)
+                        loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                        total_test_loss += loss_sum.item()
+                    
+                if(writer != None):
+                    writer.add_scalars('Loss', {
+                        'train': (total_train_loss / len(train_dataloader)),
+                        'test': (total_test_loss / len(test_dataloader))
+                    }, epoch)
+
+            return None
