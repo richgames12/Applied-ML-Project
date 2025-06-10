@@ -8,3 +8,4 @@ audiomentations
 torch
 fastapi[standard]
 seaborn
+tensorboard
