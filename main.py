@@ -4,13 +4,15 @@ from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.data.data_augmentation import (
     RawAudioAugmenter, SpectrogramAugmenter
 )
+from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.audio_feature_svm import AudioFeatureSVM
-from sklearn.multiclass import OneVsRestClassifier
 from project_name.evaluation.model_evaluation import ModelEvaluator
 from sklearn.decomposition import PCA
 import numpy as np
 import random
+import os
+import joblib
 
 
 EMOTION_LABELS = {
@@ -89,11 +91,13 @@ if __name__ == "__main__":
     # Initialize and train the SVM for emotion recognition
     # Use a OneVsRest version to increase the models accuracy
     print("Training Emotion MFCC SVM.")
-    mfcc_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
+    mfcc_emotion_svm = OneVsRestAudioFeatureSVM(
         regularization_parameter=10, seed=seed
-    ))
+    )
     mfcc_emotion_svm.fit(train_features, train_emotion_labels)
     print("Emotion MFCC SVM trained.")
+
+    mfcc_emotion_svm.save(model_name="emotion_svm")
 
     print("Training Intensity MFCC SVM.")
     # Only two classes so no OneVsRest
@@ -125,6 +129,7 @@ if __name__ == "__main__":
         spectrogram_preprocessor.process_all(train_data)
     print("Spectrogram training data processed.")
 
+    spectrogram_preprocessor.spectrogram_augmenter = None  # Test data should not be augmented
     spec_test_data, spec_test_emotion_labels, spec_test_intensity_labels = \
         spectrogram_preprocessor.process_all(test_data)
     print("Spectrogram test data processed.")
@@ -140,14 +145,20 @@ if __name__ == "__main__":
     # Reduce feature dimensionality to improve SVM efficiency
     pca = PCA(n_components=200, random_state=seed)
     spec_train_reduced = pca.fit_transform(spec_train_flat)
+    joblib.dump(
+        pca, f"project_name{os.sep}data{os.sep}spectrogram_pca.joblib"
+    )  # Save PCA model for later use
     spec_test_reduced = pca.transform(spec_test_flat)
 
     # Train spectrogram-based emotion SVM
     print("Training Spectrogram-based Emotion SVM.")
-    spec_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
-        regularization_parameter=10, seed=seed))
+    spec_emotion_svm = OneVsRestAudioFeatureSVM(
+        regularization_parameter=10, seed=seed
+    )
     spec_emotion_svm.fit(spec_train_reduced, spec_train_emotion_labels)
     print("Spectrogram-based Emotion SVM trained.")
+
+    spec_emotion_svm.save(model_name="spectrogram_emotion_svm")
 
     # Train spectrogram-based intensity SVM
     print("Training Spectrogram-based Intensity SVM.")
@@ -155,6 +166,8 @@ if __name__ == "__main__":
         regularization_parameter=10, seed=seed)
     spec_intensity_svm.fit(spec_train_reduced, spec_train_intensity_labels)
     print("Spectrogram-based Intensity SVM trained.")
+
+    spec_intensity_svm.save(model_name="spectrogram_intensity_svm.joblib")
 
     # ____________________________________________
     #              Model Evaluation MFCC

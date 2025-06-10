@@ -1,10 +1,12 @@
 from project_name.models.audio_feature_svm import AudioFeatureSVM
+from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
 from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from main import INTENSITY_LABELS, EMOTION_LABELS
 
 from typing import Annotated, Optional, Union
 import os
+import joblib
 
 from fastapi import (
     FastAPI,
@@ -273,7 +275,9 @@ async def select_model(model: Optional[str] = Form(None)):
             status_code=400, detail="No model selected. Please select a model."
         )
     audio_files = os.listdir("uploadedfiles")
-    if os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+    if os.path.exists(
+        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+    ):
         # Here you can implement logic to set the selected model
         content = f"""
         <style>
@@ -321,9 +325,12 @@ async def feature_selection(
     """
     if not audio_files:
         raise HTTPException(
-            status_code=400, detail="No audio files selected for feature selection."
+            status_code=400,
+            detail="No audio files selected for feature selection.",
         )
-    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+    if not os.path.exists(
+        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+    ):
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
@@ -379,7 +386,9 @@ async def predict(
     if isinstance(audio_files, str):
         audio_files = [audio_files]
 
-    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+    if not os.path.exists(
+        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+    ):
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
@@ -392,21 +401,32 @@ async def predict(
             )
 
     match model:
-        case "intensity_svm":
+        case "intensity_svm" | "spectrogram_intensity_svm":
             selected_model = AudioFeatureSVM.load(
                 f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
             )
-            pre_processor = AudioPreprocessor(
-                sampling_rate=22050,
-                target_length=66150,
-                use_spectrograms=False,
-                n_mels=128,
-                n_fft=2048,
-                hop_length=512,
+        case "emotion_svm" | "spectrogram_emotion_svm":
+            selected_model = OneVsRestAudioFeatureSVM.load(
+                f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
             )
         case _:
             raise HTTPException(
                 status_code=404, detail=f"Model {model} is not supported."
+            )
+
+    match model:
+        case "intensity_svm" | "emotion_svm":
+            pre_processor = AudioPreprocessor(data_augmenter=None)
+            feature_extractor = AudioFeatureExtractor(
+                use_deltas=True, n_mfcc=20
+            )
+        case "spectrogram_intensity_svm" | "spectrogram_emotion_svm":
+            pre_processor = AudioPreprocessor(
+                spectrogram_augmenter=None,
+                use_spectrograms=True,
+            )
+            pca = joblib.load(
+                f"project_name{os.sep}data{os.sep}spectrogram_pca.joblib"
             )
 
     all_paths = []
@@ -419,17 +439,26 @@ async def predict(
                 detail=f"Audio file {audio_file} not found in uploaded files.",
             )
         all_paths.extend([os.path.join(path_to_audios, audio_file)])
-
+    print(f"Processing audio files: {all_paths}")
     processed_audios, _, _ = pre_processor.process_all(all_paths)
     if len(processed_audios) == 0:
         raise HTTPException(
             status_code=400,
             detail="No valid audio files found for prediction.",
         )
-
+    print(f"Processed audios: {len(processed_audios)} files")
     # Extract features before prediction
-    feature_extractor = AudioFeatureExtractor(use_deltas=True, n_mfcc=20)
-    features = feature_extractor.extract_features_all(processed_audios)
+    if model.split("_")[0] == "spectrogram":
+        flat_processed_audios = processed_audios.reshape(
+            processed_audios.shape[0], -1
+        )
+        features = pca.transform(flat_processed_audios)
+    else:
+        features = feature_extractor.extract_features_all(processed_audios)
+
+    print(
+        f"Extracted features shape: {len(features)} samples, {features.shape[1]} features"
+    )
 
     predictions = selected_model.predict(features)
 
@@ -439,10 +468,10 @@ async def predict(
             detail="No predictions could be made. Check the audio files and model.",
         )
     match model:
-        case "intensity_svm":
+        case "intensity_svm" | "spectrogram_intensity_svm":
             predictions = [INTENSITY_LABELS[pred - 1] for pred in predictions]
-        case "emotion_svm":
-            predictions = [EMOTION_LABELS[pred - 1] for pred in predictions]
+        case "emotion_svm" | "spectrogram_emotion_svm":
+            predictions = [EMOTION_LABELS[pred] for pred in predictions]
         case _:
             raise HTTPException(
                 status_code=404, detail=f"Model {model} is not supported."
