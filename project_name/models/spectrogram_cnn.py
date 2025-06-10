@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader, TensorDataset
 
 
 class MultiheadEmotionCNN(nn.Module):
@@ -52,13 +54,13 @@ class MultiheadEmotionCNN(nn.Module):
 
         # Shared fully connected layer
         self.dropout = nn.Dropout(0.3)
-        self.fc_shared = nn.Linear(64 * 16 * 16, 256)
+        self.fc_shared = nn.Linear(64 * 16 * 16, 512)
 
         # Emotion classification head
-        self.fc_emotion = nn.Linear(256, num_emotions)
+        self.fc_emotion = nn.Linear(512, num_emotions)
 
         # Intensity classification head
-        self.fc_intensity = nn.Linear(256, num_intensity)
+        self.fc_intensity = nn.Linear(512, num_intensity)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -113,10 +115,13 @@ class MultiheadEmotionCNN(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            emotion_logits, intensity_logits = self.forward(x)
+            emotion_logits, intensity_logits = self(x)
         
         emotion_predictions = torch.argmax(emotion_logits, dim=1)
         intensity_predictions = torch.argmax(intensity_logits, dim=1)
+
+
+
 
         return emotion_predictions, intensity_predictions
 
@@ -152,7 +157,7 @@ class MultiheadEmotionCNN(nn.Module):
                 optimizer.step()
         return None
 
-    def cross_val_fit(self, test_dataloader, train_dataloader, epochs:int) -> tuple:
+    def cross_val_fit(self, test_dataloader: DataLoader, train_dataloader: DataLoader, writer: None | SummaryWriter , epochs:int) -> None:
             """
             We fit the model to dual-task dataset.
 
@@ -160,11 +165,13 @@ class MultiheadEmotionCNN(nn.Module):
             Args:
                 dataloader: pytorch dataloader that has train data and batch size
                 model: pytorch model
+                writer: tesnorboard writer (if applicable, if not: None)
                 epochs: int number of epochs to train for
+
                 
 
             Returns:
-                Tuple of lists, one contains the loss  
+                None  
             """
 
             #We can pass these as parameters to the train method but im setting them 
@@ -172,24 +179,26 @@ class MultiheadEmotionCNN(nn.Module):
             optimizer = optim.Adam(self.parameters())
             loss_func = nn.CrossEntropyLoss()
             self.train()
-            train_loss = [] 
-            val_loss = []
             for epoch in range(epochs):
-                total_loss = 0
+                total_train_loss = 0
                 for features, emotion_labels, intensity_labels in train_dataloader:
                     emotion_logits, intensity_logits = self(features)
                     loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
                     loss_sum.backward()
                     optimizer.step()
-                    total_loss += loss_sum.item()
-                train_loss.append(total_loss / len(train_dataloader))
+                    total_train_loss += loss_sum.item()
                     
                 with torch.no_grad():
-                    total_loss = 0
+                    total_test_loss = 0
                     for features, emotion_labels, intensity_labels in test_dataloader:
                         emotion_logits, intensity_logits = self(features)
                         loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
-                        total_loss += loss_sum.item()
-                    val_loss.append(total_loss / len(test_dataloader))
-                print(f'Epoch {epoch} val loss {loss_sum.item()}')
-            return train_loss, val_loss
+                        total_test_loss += loss_sum.item()
+                    
+                if(writer != None):
+                    writer.add_scalars('Loss', {
+                        'train': (total_train_loss / len(train_dataloader)),
+                        'test': (total_test_loss / len(test_dataloader))
+                    }, epoch)
+
+            return None

@@ -8,13 +8,21 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import KFold
 from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
+import sklearn.metrics
 import matplotlib.pyplot as plt
+from project_name.evaluation.model_evaluation import ModelEvaluator
+
 
 from torch.utils.tensorboard import SummaryWriter
 
+#quick hack
+EMOTION_LABELS = {
+    1: 'neutral', 2: 'calm', 3: 'happy', 4: 'sad',
+    5: 'angry', 6: 'fearful', 7: 'disgust', 8: 'surprised'
+}
 
 class TrainAndEval():
-    def __init__(self, aug_features: np.ndarray, aug_labels: tuple, n_augmentations: int) -> None:
+    def __init__(self, aug_features: np.ndarray, aug_labels: tuple, n_augmentations: int, model) -> None:
         #Do data augmentation on all data
         
         self.aug_features = aug_features #quick hack for label problem
@@ -22,17 +30,14 @@ class TrainAndEval():
         self.n_augmentations = n_augmentations 
         self.n_samples = int(aug_features.shape[0] / n_augmentations)
         self.seed = None
-        self.compatiblity = {
-            "SVM": ["holdout, loocv, kfold"],
-            "CNN": ["holdout, loocv, kfold"], 
-        }
+        self.model = model
         self.writer = SummaryWriter('logs/test')
 
         return None
 
             
 
-    def train_model(self, model, cross_val: str):
+    def train_model(self, cross_val: str):
         """
         Method that allows for training calls to the model. 
 
@@ -45,17 +50,19 @@ class TrainAndEval():
         """
 
         #Check whether provided model is compatible with cross validation. 
-        if(not cross_val in self.compatiblity[model.type]):
-            raise ValueError(
-                "Cross validation type not copatible with model type."
-            )
+       # if(not cross_val in self.compatiblity[self.model.model_type]):
+        #    raise ValueError(
+         #       "Cross validation type not copatible with model type."
+          #  )
     
+        spec_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
+            regularization_parameter=10, seed=self.seed))
+        
+        if(cross_val == "holdout"):
+            self._holdout()
 
-        #Model train test
-        CNN = MultiheadEmotionCNN()
 
-
-    def k_fold(model, features, k:int = 10):
+    def _k_fold(model, features, k:int = 10):
         fol_obj = KFold(n_splits=k, shuffle=True)
 
         pass
@@ -65,102 +72,107 @@ class TrainAndEval():
 
 
     
-    def holdout(self, model: MultiheadEmotionCNN | AudioFeatureSVM):
+    def _holdout(self):
         """Evaluate using holdout data split"""
         val_proportion = 0.2
         val_begin = int(self.n_samples * (1 - val_proportion))
         val_end = self.n_samples
 
-        val_features, train_features = self.data_split(self.aug_features, val_begin, val_end)
+        test_features, train_features = self._data_split(self.aug_features, val_begin, val_end)
 
-        emote_val_labels, emote_train_labels = self.data_split(self.aug_labels[0], val_begin, val_end)
-        intens_val_labels, intens_train_labels = self.data_split(self.aug_labels[1], val_begin, val_end)
+        emote_test_labels, emote_train_labels = self._data_split(self.aug_labels[0], val_begin, val_end)
+        intens_test_labels, intens_train_labels = self._data_split(self.aug_labels[1], val_begin, val_end)
 
 
         #End of shared code
 
-        if(isinstance(model, MultiheadEmotionCNN)):
-            val_feature = torch.tensor(val_features[0:1],dtype=torch.float32)  
-            emote_val_labels = torch.from_numpy(emote_val_labels)
-            intens_val_labels = torch.from_numpy(intens_val_labels)
-            emote_train_labels = torch.from_numpy(emote_train_labels)
-            intens_train_labels = torch.from_numpy(intens_train_labels)
-            train_features = torch.tensor(train_features, dtype=torch.float32)
-            val_features =  torch.tensor(val_features,dtype=torch.float32)       
+        if(isinstance(self.model, MultiheadEmotionCNN)):
+            self._train_CNN_split(train_features, test_features, emote_train_labels, emote_test_labels, intens_train_labels, intens_test_labels)
+            self._write_confusion_matrix(test_features, emote_test_labels, intens_test_labels)
 
-            train_dataset = TensorDataset(train_features, emote_train_labels, intens_train_labels)
-            train_dataloader = DataLoader(train_dataset, batch_size=2, shuffle=True)
-            test_dataset = TensorDataset(val_features, emote_val_labels, intens_val_labels)
-            print(len(test_dataset))
-            test_dataloader = DataLoader(test_dataset, batch_size=2, shuffle=True)
-            
-            n_epoch = 4 #computer slow so few for test purposes
-
-            train_loss, val_loss = model.cross_val_fit(test_dataloader, train_dataloader, n_epoch)
-
-            for epoch in range(n_epoch):
-                self.writer.add_scalars('Loss', {
-                    'train': train_loss[epoch],
-                    'val': val_loss[epoch]
-                }, epoch)
-            self.writer.close()
-
-            #MC TEST
-
-            self.mc_uncertainty(model, val_feature)
-
-        elif(isinstance(model, AudioFeatureSVM)):
-            spec_train_flat = train_features.reshape(train_features.shape[0], -1)
-            spec_test_flat = val_features.reshape(val_features.shape[0], -1)
-
-            # ____________________________________________
-            #       Dimensionality Reduction (PCA)
-            # ____________________________________________
-
-            # Reduce feature dimensionality to improve SVM efficiency
-            pca = PCA(n_components=200, random_state=self.seed)
-            spec_train_reduced = pca.fit_transform(spec_train_flat)
-            spec_test_reduced = pca.transform(spec_test_flat)
-
-            # Train spectrogram-based emotion SVM
-            print("Training Spectrogram-based Emotion SVM.")
-            spec_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
-                regularization_parameter=10, seed=self.seed))
-            spec_emotion_svm.fit(spec_train_reduced, emote_train_labels)
-            print("Spectrogram-based Emotion SVM trained.")
-
-            # Train spectrogram-based intensity SVM
-            print("Training Spectrogram-based Intensity SVM.")
-            spec_intensity_svm = AudioFeatureSVM(
-                regularization_parameter=10, seed=self.seed)
-            spec_intensity_svm.fit(spec_train_reduced, intens_train_labels)
-            print("Spectrogram-based Intensity SVM trained.")
+        elif(isinstance(self.model, AudioFeatureSVM)):
+            self._train_SVM_split()
 
 
-        
-    def loocv(model, features):
-        pass
-
-    def data_split(self, data: np.ndarray, val_begin:int, val_end:int) -> tuple:
+    def _data_split(self, data: np.ndarray, val_begin:int, val_end:int) -> tuple:
         val_begin *= self.n_augmentations
         val_end *= self.n_augmentations
         val_data = data[val_begin:val_end]
         val_data = val_data[::(self.n_augmentations)]
         train_data = np.concatenate((data[:val_begin], data[val_end:]))
         return val_data, train_data  
+    
 
-    def mc_uncertainty(self, model, eval_data, n=100):
+    def _train_CNN_split(self, train_features:np.ndarray, test_features:np.ndarray, 
+                         emote_train_labels:np.ndarray, emote_test_labels:np.ndarray, intens_train_labels:np.ndarray, intens_test_labels:np.ndarray, n_epoch: int = 5) -> None:
+            """Train cnn"""
+
+            emote_test_labels = torch.from_numpy(emote_test_labels)
+            intens_test_labels = torch.from_numpy(intens_test_labels)
+            emote_train_labels = torch.from_numpy(emote_train_labels)
+            intens_train_labels = torch.from_numpy(intens_train_labels)
+            train_features = torch.tensor(train_features, dtype=torch.float32)
+            test_features =  torch.tensor(test_features,dtype=torch.float32)       
+
+            train_dataset = TensorDataset(train_features, emote_train_labels, intens_train_labels)
+            train_dataloader = DataLoader(train_dataset, batch_size=2, shuffle=True)
+            test_dataset = TensorDataset(test_features, emote_test_labels, intens_test_labels)
+            test_dataloader = DataLoader(test_dataset, batch_size=2, shuffle=True)
+            
+            self.model.cross_val_fit(test_dataloader, train_dataloader, self.writer, n_epoch)
+
+            return None
+
+
+    def _train_SVM_split(self, train_features:np.ndarray, test_features:np.ndarray, test_labels:np.ndarray) -> None:
+        
+        spec_train_flat = train_features.reshape(train_features.shape[0], -1)
+        spec_test_flat = test_features.reshape(test_features.shape[0], -1)
+        # Reduce feature dimensionality to improve SVM efficiency
+        pca = PCA(n_components=200, random_state=self.seed)
+        spec_train_reduced = pca.fit_transform(spec_train_flat)
+        spec_test_reduced = pca.transform(spec_test_flat)
+
+        # Train spectrogram-based emotion SVM
+        print("Training Spectrogram-based Emotion SVM.")
+
+        self.modelmodel.fit(spec_train_reduced, train_labels)
+        print("Spectrogram-based Emotion SVM trained.")
+
+        return None
+        
+
+    def _mc_uncertainty(self, eval_data, n=100):
         #currently for a single sample
-        model.train() #to enable dropout, because no grad or step this wont update weights
+        self.model.train() #to enable dropout, because no grad or step this wont update weights
         outcomes = []
         with torch.no_grad():
             for _ in range(n):
-                output = model(eval_data)
+                output = self.model.forward(eval_data)
                 prob = torch.nn.functional.softmax(output[0], dim=1)
                 outcomes.append(prob)
-
+        print(outcomes)
         outcomes = torch.stack(outcomes)
         mean_class_probs = outcomes.mean(dim=0)
         class_std = outcomes.std(dim=0)
         print(mean_class_probs)
         print(class_std)
+
+
+    def _write_confusion_matrix(self, eval_data, emote_ground_truth, intens_ground_truth):
+        eval_data =  torch.tensor(eval_data,dtype=torch.float32)   
+        predictions = self.model.predict(eval_data)
+        evaluator = ModelEvaluator(EMOTION_LABELS)
+        evaluator.evaluate_from_predictions(emote_ground_truth + 1, (predictions[0].numpy() +1) ) #quick hack to solve class indexing
+        
+
+
+    def eval_metric(self, metric: str, ground_truth: np.ndarray, predictions: np.ndarray):
+        """
+        Calculate metric score:
+        Args:
+        metric: str, specifier of metric to calculate
+        ground_truth: np.ndarray, true labels
+        predictions: np.ndarrraym, 
+        """
+        pass #for now

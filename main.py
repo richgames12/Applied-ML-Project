@@ -73,6 +73,6 @@ if __name__ == "__main__":
 
     multi_task_cnn = MultiheadEmotionCNN()
     all_labels = spec_train_emotion_labels, spec_train_intensity_labels
-    eval_obj = TrainAndEval(spec_train_data, all_labels, 2)
-    eval_obj.holdout(multi_task_cnn)
+    eval_obj = TrainAndEval(spec_train_data, all_labels, 2, multi_task_cnn)
+    eval_obj.train_model("holdout")
     
