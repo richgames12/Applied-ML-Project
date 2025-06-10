@@ -2,10 +2,7 @@ from project_name.models.audio_feature_svm import AudioFeatureSVM
 from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
 from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
-from main import (
-    INTENSITY_LABELS,
-    EMOTION_LABELS
-    )
+from main import INTENSITY_LABELS, EMOTION_LABELS
 
 from typing import Annotated, Optional, Union
 import os
@@ -278,7 +275,9 @@ async def select_model(model: Optional[str] = Form(None)):
             status_code=400, detail="No model selected. Please select a model."
         )
     audio_files = os.listdir("uploadedfiles")
-    if os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+    if os.path.exists(
+        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+    ):
         # Here you can implement logic to set the selected model
         content = f"""
         <style>
@@ -326,9 +325,12 @@ async def feature_selection(
     """
     if not audio_files:
         raise HTTPException(
-            status_code=400, detail="No audio files selected for feature selection."
+            status_code=400,
+            detail="No audio files selected for feature selection.",
         )
-    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+    if not os.path.exists(
+        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+    ):
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
@@ -384,7 +386,9 @@ async def predict(
     if isinstance(audio_files, str):
         audio_files = [audio_files]
 
-    if not os.path.exists(f"project_name{os.sep}saved_models{os.sep}{model}.joblib"):
+    if not os.path.exists(
+        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+    ):
         raise HTTPException(
             status_code=404,
             detail=f"Model {model} not found. Please train the model first.",
@@ -412,10 +416,10 @@ async def predict(
 
     match model:
         case "intensity_svm" | "emotion_svm":
-            pre_processor = AudioPreprocessor(
-                data_augmenter=None
+            pre_processor = AudioPreprocessor(data_augmenter=None)
+            feature_extractor = AudioFeatureExtractor(
+                use_deltas=True, n_mfcc=20
             )
-            feature_extractor = AudioFeatureExtractor(use_deltas=True, n_mfcc=20)
         case "spectrogram_intensity_svm" | "spectrogram_emotion_svm":
             pre_processor = AudioPreprocessor(
                 spectrogram_augmenter=None,
@@ -445,12 +449,16 @@ async def predict(
     print(f"Processed audios: {len(processed_audios)} files")
     # Extract features before prediction
     if model.split("_")[0] == "spectrogram":
-        flat_processed_audios = processed_audios.reshape(processed_audios.shape[0], -1)
+        flat_processed_audios = processed_audios.reshape(
+            processed_audios.shape[0], -1
+        )
         features = pca.transform(flat_processed_audios)
     else:
         features = feature_extractor.extract_features_all(processed_audios)
 
-    print(f"Extracted features shape: {len(features)} samples, {features.shape[1]} features")
+    print(
+        f"Extracted features shape: {len(features)} samples, {features.shape[1]} features"
+    )
 
     predictions = selected_model.predict(features)
 
