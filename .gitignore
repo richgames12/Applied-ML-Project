@@ -13,3 +13,4 @@ saved_models/
 uploadedfiles/
 # Don't sync the saved files to github
 *.joblib
+logs/
