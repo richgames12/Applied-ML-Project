@@ -1,14 +1,14 @@
 from project_name.models.spectrogram_cnn import MultiheadEmotionCNN
 from project_name.models.audio_feature_svm import AudioFeatureSVM
-# Change above imports to star once this file is moved out of this dir
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import KFold
 from sklearn.decomposition import PCA
-from sklearn.multiclass import OneVsRestClassifier
+from sklearn.metrics import f1_score
 from project_name.evaluation.model_evaluation import ModelEvaluator
-
+from datetime import datetime
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -18,112 +18,254 @@ EMOTION_LABELS = {
 }
 INTENSITY_LABELS = {0: 'normal', 1: 'strong'}
 
-class TrainAndEval():
-    def __init__(self, aug_features: np.ndarray, aug_labels: tuple, n_augmentations: int, model) -> None:
-        # Do data augmentation on all data
 
-        self.aug_features = aug_features  # quick hack for label problem
-        self.aug_labels = aug_labels[0] - 1, aug_labels[1] - 1  # The labels go from 1-9 and from 1-2, shift down by 1
+class TrainAndEval():
+    def __init__(
+        self,
+        aug_features: np.ndarray,
+        aug_labels: tuple[np.ndarray, np.ndarray],
+        n_augmentations: int,
+        model: MultiheadEmotionCNN | AudioFeatureSVM,
+        n_epochs: int = 20,
+        task: str | None = None,  # 'emotion' or 'intensity' for SVM; ignored for CNN
+        k_fold_splits: int = 5,
+        seed: int | None = None
+    ) -> None:
+        # Store features and shift labels to start from 0
+        self.aug_features = aug_features
+        self.aug_labels = (aug_labels[0] - 1, aug_labels[1] - 1)
         self.n_augmentations = n_augmentations
         self.n_samples = int(aug_features.shape[0] / (n_augmentations + 1))
-        self.seed = None
-        self.model = model
-        self.writer = SummaryWriter('logs/test')
+        self.seed = seed
 
+        # Model and training setup
+        self.model = model
+        self.n_epochs = n_epochs
+        self.k_fold_splits = k_fold_splits
+        self.task = task
+
+        # Store the initial model parameters
+        self.model_settings = model.get_params()
+
+        self.best_params = None
+        self.best_score = -np.inf  # Initialize to negative infinity for maximization
+
+        # PCA for SVMs
+        self.PCA = PCA(n_components=200, random_state=self.seed)
+
+        # TensorBoard writer with unique log directory
+        logdir = f"logs/run_{datetime.now():%Y%m%d_%H%M%S}"
+        self.writer = SummaryWriter(logdir)
+
+    def train_and_eval_model(self, params: dict | None = None) -> None:
+        """
+        Train the model on all available data (no validation or cross-validation).
+        """
+        if params is None:
+            # If no model parameters are provided, use best parameters if available
+            if self.best_params is not None:
+                params = self.best_params
+            else:
+                # Default model parameters if none are provided
+                params = {}
+
+        model_params = {
+            param_name: param_value
+            for param_name, param_value in params.items()
+            if param_name in [
+                "dropout_rate",
+                "regularization_parameter",
+                "kernel"
+            ]
+        }
+        train_params = {
+            param_name: param_value
+            for param_name, param_value in params.items()
+            if param_name not in model_params
+        }
+
+        if isinstance(self.model, MultiheadEmotionCNN):
+            self._train_CNN_split(
+                train_features=self.aug_features,
+                val_features=None,
+                emotion_train_labels=self.aug_labels[0],
+                emotion_val_labels=None,
+                intensity_train_labels=self.aug_labels[1],
+                intensity_val_labels=None,
+                n_epoch=train_params.get("n_epoch", self.n_epochs),
+                learning_rate=train_params.get("learning_rate", 1e-3),
+                batch_size=train_params.get("batch_size", 32),
+                writer=self.writer,
+                return_val_score=False,
+                model_params=model_params
+            )
+        elif isinstance(self.model, AudioFeatureSVM):
+            self._train_SVM_split(
+                train_features=self.aug_features,
+                train_labels=self.aug_labels[0] if self.task == "emotion" else self.aug_labels[1],
+                model_params=model_params
+            )
+        else:
+            raise ValueError("Unknown model type.")
+
+    def _k_fold(
+        self,
+        k_folds: int = 5,
+        n_epoch: int = 20,
+        learning_rate: float = 1e-3,
+        batch_size: int = 32,
+        return_val_score: bool = False,
+        model_params=None
+    ) -> float | None:
+        """Evaluate using k-fold cross-validation"""
+        n_total = self.n_samples
+        n_aug = self.n_augmentations
+        # Generate indices for k-fold cross-validation
+        kf = KFold(n_splits=k_folds, shuffle=True, random_state=self.seed)
+        total_val_score = 0.0
+
+        for fold, (train_idx, val_idx) in enumerate(kf.split(np.arange(n_total))):
+            print(f"Fold {fold+1}/{k_folds}")
+
+            # Get all augmented indices for training
+            train_aug_idx = []
+            for idx in train_idx:
+                start = idx * (n_aug + 1)
+                end = start + (n_aug + 1)
+                train_aug_idx.extend(range(start, end))
+            train_aug_idx = np.array(train_aug_idx)
+
+            # Validation indices: only the original (first) sample of each group
+            val_orig_idx = val_idx * (n_aug + 1)
+
+            train_features = self.aug_features[train_aug_idx]
+            val_features = self.aug_features[val_orig_idx]
+
+            if isinstance(self.model, MultiheadEmotionCNN):
+                # For MultiheadEmotionCNN, we have two sets of labels
+                train_emotion_labels = self.aug_labels[0][train_aug_idx]
+                train_intens_labels = self.aug_labels[1][train_aug_idx]
+                val_emote_labels = self.aug_labels[0][val_orig_idx]
+                val_intens_labels = self.aug_labels[1][val_orig_idx]
+            elif isinstance(self.model, AudioFeatureSVM):
+                # For AudioFeatureSVM, we have one set of labels depending on the task
+                if self.task == "emotion":
+                    train_labels = self.aug_labels[0][train_aug_idx]
+                    val_labels = self.aug_labels[0][val_orig_idx]
+                elif self.task == "intensity":
+                    train_labels = self.aug_labels[1][train_aug_idx]
+                    val_labels = self.aug_labels[1][val_orig_idx]
+                else:
+                    raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
+
+            if isinstance(self.model, MultiheadEmotionCNN):
+                val_score = self._train_CNN_split(
+                    train_features=train_features,
+                    val_features=val_features,
+                    emotion_train_labels=train_emotion_labels,
+                    emotion_val_labels=val_emote_labels,
+                    intensity_train_labels=train_intens_labels,
+                    intensity_val_labels=val_intens_labels,
+                    n_epoch=n_epoch,
+                    learning_rate=learning_rate,
+                    batch_size=batch_size,
+                    writer=self.writer,
+                    return_val_score=return_val_score,
+                    model_params=model_params
+                )
+                self.writer.close()
+
+            elif isinstance(self.model, AudioFeatureSVM):
+                val_score = self._train_SVM_split(
+                    train_features=train_features,
+                    train_labels=train_labels,
+                    val_features=val_features,
+                    val_labels=val_labels,
+                    return_val_score=return_val_score,
+                    model_params=model_params
+                )
+
+            if return_val_score and val_score is not None:
+                total_val_score = total_val_score + val_score
+
+        if return_val_score:
+            # If we want to return the validation score, we can return the last one
+            return total_val_score / k_folds
+
+        # If we don't want to return the validation score, we just return None
         return None
 
-    def train_and_eval_model(self, cross_val: str):
+    def _holdout(self, val_proportion: float = 0.2, n_epoch=20, learning_rate=1e-3, batch_size=32, return_val_score=False, model_params=None) -> None:
         """
-        Method that allows for training calls to the model. 
-
+        Evaluate using holdout data split with shuffling.
         Args:
-        model pytorch model 
-        cross_val: string, specifies type of cross validation to use
-        features: np.ndarray, contains features to be trained and tested on
-        labels: np.ndarray, contains labels for supervised training problems
-
+            val_proportion: float, proportion of data to use for validation (default 0.2)
         """
+        n_aug = self.n_augmentations
 
-        # Check whether provided model is compatible with cross validation.
-        # if(not cross_val in self.compatiblity[self.model.model_type]):
-        #    raise ValueError(
-        #       "Cross validation type not copatible with model type."
-        #    )
+        # Shuffle original indices using np.random
+        orig_indices = np.arange(self.n_samples)
+        np.random.shuffle(orig_indices)
 
-        spec_emotion_svm = OneVsRestClassifier(AudioFeatureSVM(
-            regularization_parameter=10, seed=self.seed))
+        # Compute augmented indices for shuffled originals
+        aug_indices = np.concatenate([
+            np.arange(idx * (n_aug + 1), (idx + 1) * (n_aug + 1)) for idx in orig_indices
+        ])
 
-        if (cross_val == "holdout"):
-            self._holdout()
+        # Only split into train and validation
+        val_length = int(self.n_samples * val_proportion)
+        val_begin = self.n_samples - val_length
+        val_end = self.n_samples
 
+        # Reorder features and labels according to shuffled indices
+        shuffled_features = self.aug_features[aug_indices]
+        val_features, train_features = self._data_split(shuffled_features, val_begin, val_end)
 
+        # Split labels according to the same indices
+        # If the model is MultiheadEmotionCNN, we have two sets of labels
+        if isinstance(self.model, MultiheadEmotionCNN):
+            shuffled_emotion_labels = self.aug_labels[0][aug_indices]
+            shuffled_intensity_labels = self.aug_labels[1][aug_indices]
+            val_emotion_labels, train_emotion_labels = self._data_split(shuffled_emotion_labels, val_begin, val_end)
+            val_intensity_labels, train_intensity_labels = self._data_split(shuffled_intensity_labels, val_begin, val_end)
+        elif isinstance(self.model, AudioFeatureSVM):
+            if self.task == "emotion":
+                shuffled_labels = self.aug_labels[0][aug_indices]
+            elif self.task == "intensity":
+                shuffled_labels = self.aug_labels[1][aug_indices]
+            else:
+                raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
+            val_labels, train_labels = self._data_split(shuffled_labels, val_begin, val_end)
 
-
-
-    def _k_fold(self, features, k: int = 10):
-        #  fold is really supposed to be used for hyperparameter tuning, it's not really doing anything here
-
-        fol_obj = KFold(n_splits=k, shuffle=True)
-
-        if (isinstance(self.model, MultiheadEmotionCNN)):
-            emote_test_labels = torch.from_numpy(emote_test_labels)
-            intens_test_labels = torch.from_numpy(intens_test_labels)
-            emote_train_labels = torch.from_numpy(emote_train_labels)
-            intens_train_labels = torch.from_numpy(intens_train_labels)
-            train_features = torch.tensor(train_features, dtype=torch.float32)
-            test_features = torch.tensor(test_features, dtype=torch.float32)
-            train_dataset = TensorDataset(train_features, emote_train_labels, intens_train_labels)       
-            validation_dataset = TensorDataset(test_features, emote_test_labels, intens_test_labels)
-            validation_dataloader = DataLoader(validation_dataset, batch_size=16, shuffle=True)
-
-            for fold, (train_indcs, test_indcs) in enumerate(fol_obj.split(train_features)):
-                train_dataloader = DataLoader(train_dataset, batch_size=16, sampler=torch.utils.data.SubsetRandomSampler(train_indcs))
-                test_dataloader = DataLoader(train_dataset, batch_size=16, sampler=torch.utils.data.SubsetRandomSampler(test_indcs))
-                self.model.fit(train_dataloader)
-                self.eval_metric()
-
-        pass
-
-    def _holdout(self):
-        """Evaluate using holdout data split"""
-        temp_proportion = 0.2
-        val_proportion = 0.5
-        temp_length = int(self.n_samples * temp_proportion)
-        temp_begin = self.n_samples - temp_length
-        temp_end = self.n_samples
-        val_begin = int(temp_length * val_proportion)
-
-        temp_features, train_features = self._data_split(self.aug_features, temp_begin, temp_end)
-        test_features = temp_features[val_begin:]
-        val_features = temp_features[:val_begin]
-
-        emote_temp_labels, emote_train_labels = self._data_split(self.aug_labels[0], temp_begin, temp_end)
-        intens_temp_labels, intens_train_labels = self._data_split(self.aug_labels[1], temp_begin, temp_end)
-
-        emote_test_labels = emote_temp_labels[val_begin:]
-        emote_val_labels = emote_temp_labels[:val_begin]
-        intens_test_labels = intens_temp_labels[val_begin:]
-        intens_val_labels = intens_temp_labels[:val_begin]
-
-        print(emote_test_labels.shape)
-        print(emote_val_labels.shape)
-        print(intens_test_labels.shape)
-        print(intens_val_labels.shape)
-        # End of shared code
-
-        if (isinstance(self.model, MultiheadEmotionCNN)):
-            self._train_CNN_split(train_features, val_features, emote_train_labels, emote_val_labels, intens_train_labels, intens_val_labels)
-            test_features = torch.tensor(test_features, dtype=torch.float32)
-            predictions = self.model.predict(test_features)
-            emote_predictions = predictions[0].numpy()
-            intens_predictions = predictions[1].numpy()
-            self._mc_uncertainty(test_features[0])
-            self._write_confusion_matrix(EMOTION_LABELS, emote_test_labels, emote_predictions)
-            self._write_confusion_matrix(INTENSITY_LABELS, intens_test_labels, intens_predictions)
+        if isinstance(self.model, MultiheadEmotionCNN):
+            val_score = self._train_CNN_split(
+                train_features=train_features,
+                val_features=val_features,
+                emotion_train_labels=train_emotion_labels,
+                emotion_val_labels=val_emotion_labels,
+                intensity_train_labels=train_intensity_labels,
+                intensity_val_labels=val_intensity_labels,
+                n_epoch=n_epoch,
+                learning_rate=learning_rate,
+                batch_size=batch_size,
+                writer=self.writer,
+                return_val_score=return_val_score,
+                model_params=model_params
+            )
             self.writer.close()
 
-        elif (isinstance(self.model, AudioFeatureSVM)):
-            self._train_SVM_split()
+        elif isinstance(self.model, AudioFeatureSVM):
+            val_score = self._train_SVM_split(
+                train_features=train_features, 
+                val_features=val_features,
+                train_labels=train_labels,
+                val_labels=val_labels,
+                return_val_score=return_val_score,
+                model_params=model_params
+            )
+
+        if return_val_score:
+            return val_score
 
     def _data_split(self, data: np.ndarray, val_begin: int, val_end: int) -> tuple:
         """Split data into test and validation sets
@@ -138,41 +280,73 @@ class TrainAndEval():
         train_data = np.concatenate((data[:val_begin], data[val_end:]))
         return val_data, train_data
 
-    def _train_CNN_split(self, train_features: np.ndarray, test_features: np.ndarray,
-                         emote_train_labels: np.ndarray, emote_test_labels: np.ndarray, intens_train_labels: np.ndarray, intens_test_labels: np.ndarray, n_epoch: int = 20) -> None:
-        """Train cnn"""
-        print(train_features.shape)
-        print(test_features.shape)
+    def _train_CNN_split(
+        self,
+        train_features, val_features,
+        emotion_train_labels, emotion_val_labels,
+        intensity_train_labels, intensity_val_labels,
+        n_epoch=20, learning_rate=1e-3, batch_size=32, writer=None, return_val_score=False,
+        model_params: dict = None
+    ) -> float | None:
+        if model_params is None:
+            model_params = {}
 
-        emote_test_labels = torch.from_numpy(emote_test_labels)
-        intens_test_labels = torch.from_numpy(intens_test_labels)
-        emote_train_labels = torch.from_numpy(emote_train_labels)
-        intens_train_labels = torch.from_numpy(intens_train_labels)
-        train_features = torch.tensor(train_features, dtype=torch.float32)
-        test_features = torch.tensor(test_features, dtype=torch.float32)
+        # Convert numpy arrays to torch tensors and create DataLoaders
+        train_dataset = TensorDataset(
+            torch.tensor(train_features, dtype=torch.float32),
+            torch.tensor(emotion_train_labels, dtype=torch.long),
+            torch.tensor(intensity_train_labels, dtype=torch.long)
+        )
+        val_dataset = TensorDataset(
+            torch.tensor(val_features, dtype=torch.float32),
+            torch.tensor(emotion_val_labels, dtype=torch.long),
+            torch.tensor(intensity_val_labels, dtype=torch.long)
+        )
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
+        self.model = MultiheadEmotionCNN(**model_params)
 
-        train_dataset = TensorDataset(train_features, emote_train_labels, intens_train_labels)
-        train_dataloader = DataLoader(train_dataset, batch_size=2, shuffle=True)
-        test_dataset = TensorDataset(test_features, emote_test_labels, intens_test_labels)
-        test_dataloader = DataLoader(test_dataset, batch_size=2, shuffle=True)
+        # Call the model's training method and return validation score if required
+        val_score = self.model.fit(
+            val_dataloader=val_loader,
+            train_dataloader=train_loader,
+            writer=writer,
+            epochs=n_epoch,
+            learning_rate=learning_rate,
+            return_val_score=return_val_score
+        )
+        return val_score
 
-        self.model.cross_val_fit(test_dataloader, train_dataloader, self.writer, n_epoch)
+    def _train_SVM_split(
+        self,
+        train_features: np.ndarray,
+        train_labels: np.ndarray,  # Now generic: can be emotion or intensity
+        val_features: np.ndarray = None,
+        val_labels: np.ndarray = None,
+        return_val_score: bool = False,
+        model_params: dict = None
+    ):
+        if model_params is None:
+            model_params = {}
 
-        return None
-
-
-    def _train_SVM_split(self, train_features: np.ndarray, train_labels: np.ndarray) -> None:
-
+        # Flatten spectrograms for SVM input
         spec_train_flat = train_features.reshape(train_features.shape[0], -1)
-        # Reduce feature dimensionality to improve SVM efficiency
-        pca = PCA(n_components=200, random_state=self.seed)
-        spec_train_reduced = pca.fit_transform(spec_train_flat)
-        # Train spectrogram-based emotion SVM
-        print("Training Spectrogram-based Emotion SVM.")
+        self.pca = PCA(n_components=200, random_state=self.seed)
+        spec_train_reduced = self.pca.fit_transform(spec_train_flat)
 
+        # Train SVM for the current task
+        self.model = AudioFeatureSVM(**model_params, seed=self.seed)
         self.model.fit(spec_train_reduced, train_labels)
-        print("Spectrogram-based Emotion SVM trained.")
+        print("Spectrogram-based SVM trained.")
+
+        # Validation
+        if return_val_score and val_features is not None and val_labels is not None:
+            val_flat = val_features.reshape(val_features.shape[0], -1)
+            val_reduced = self.pca.transform(val_flat)
+            predicted = self.model.predict(val_reduced)
+            score = f1_score(val_labels, predicted, average="weighted")
+            return score
 
         return None
 
@@ -192,17 +366,103 @@ class TrainAndEval():
         print(mean_class_probs)
         print(class_std)
 
-    def _write_confusion_matrix(self, labels, emote_ground_truth: np.ndarray, predictions: np.ndarray):
-        evaluator = ModelEvaluator(labels)
-        evaluator.evaluate_from_predictions(emote_ground_truth, predictions)
-        return None
+    def _hyperparameter_tune(self, param_grid, cross_val="k_fold"):
+        for params in param_grid:
 
-    def _eval_metric(self, metric: str, ground_truth: np.ndarray, predictions: np.ndarray):
+            # Split parameters into model and training parameters
+            model_params = {
+                param_name: param_value
+                for param_name, param_value in params.items()
+                if param_name in [
+                    "dropout_rate",
+                    "regularization_parameter",
+                    "kernel"
+                ]
+            }
+            train_params = {
+                param_name: param_value
+                for param_name, param_value in params.items()
+                if param_name not in model_params
+            }
+
+            # Model parameters are used to initialize the model while training parameters
+            # are used to fit the model
+            if cross_val == "k_fold":
+                val_score = self._k_fold(return_val_score=True, **train_params, model_params=model_params)
+            elif cross_val == "holdout":
+                val_score = self._holdout(return_val_score=True, **train_params, model_params=model_params)
+            else:
+                raise ValueError("Unknown cross-validation type.")
+
+            if val_score > self.best_score:
+                self.best_score = val_score
+                self.best_params = params
+
+        # Retrain best model on all training data
+        # (repeat the split above to get model_params and train_params)
+        model_params = {
+            param_name: param_value
+            for param_name, param_value in params.items()
+            if param_name in [
+                "dropout_rate",
+                "regularization_parameter",
+                "kernel"
+            ]
+        }
+        train_params = {
+            param_name: param_value
+            for param_name, param_value in params.items()
+            if param_name not in model_params
+        }
+        if isinstance(self.model, MultiheadEmotionCNN):
+            self.model = MultiheadEmotionCNN(**model_params)
+            self.model.fit(self.aug_features, self.aug_labels[0], **train_params)
+        elif isinstance(self.model, AudioFeatureSVM):
+            self.model = AudioFeatureSVM(**model_params)
+            self.model.fit(self.aug_features, self.aug_labels[0])
+        self.model.save("best_model")
+        print(f"Best hyperparameters: {self.best_params}, Validation score: {self.best_score}")
+
+    def evaluate_on_testset(self, test_features, emotion_test_labels: np.ndarray = None, intensity_test_labels: np.ndarray = None) -> None:
         """
-        Calculate metric score:
+        Evaluate the model on the test set and write metrics.
         Args:
-        metric: str, specifier of metric to calculate
-        ground_truth: np.ndarray, true labels
-        predictions: np.ndarrray, predicted labels,
+            test_features: np.ndarray or torch.Tensor, test features
+            emotion_test_labels: np.ndarray, true emotion labels
+            intensity_test_labels: np.ndarray, true intensity labels
         """
-        pass  # for now
+        emotion_evaluator = ModelEvaluator(EMOTION_LABELS)
+        intensity_evaluator = ModelEvaluator(INTENSITY_LABELS)
+
+        if isinstance(self.model, MultiheadEmotionCNN):
+            if emotion_test_labels is None or intensity_test_labels is None:
+                raise ValueError("Both emotion and intensity test labels must be provided for MultiheadEmotionCNN.")
+
+            # Convert test features to torch tensor
+            test_features_tensor = torch.tensor(test_features, dtype=torch.float32)
+            self.model.eval()
+            with torch.no_grad():
+                predictions = self.model.predict(test_features_tensor)
+                emotion_predictions = predictions[0].numpy()
+                intensity_predictions = predictions[1].numpy()
+            emotion_evaluator.evaluate_from_predictions(emotion_test_labels, emotion_predictions)
+            intensity_evaluator.evaluate_from_predictions(intensity_test_labels, intensity_predictions)
+
+        elif isinstance(self.model, AudioFeatureSVM):
+            test_flat = test_features.reshape(test_features.shape[0], -1)
+            test_reduced = self.pca.transform(test_flat)
+            predictions = self.model.predict(test_reduced)
+
+            # SVMs can only predict one task at a time, so we need to handle both tasks separately
+            if self.task == "emotion":
+                if emotion_test_labels is None:
+                    raise ValueError("Emotion test labels must be provided for emotion SVM.")
+
+                emotion_evaluator.evaluate_from_predictions(emotion_test_labels, predictions)
+            elif self.task == "intensity":
+                if intensity_test_labels is None:
+                    raise ValueError("Intensity test labels must be provided for intensity SVM.")
+
+                intensity_evaluator.evaluate_from_predictions(intensity_test_labels, predictions)
+            else:
+                raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")

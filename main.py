@@ -1,29 +1,15 @@
 from download_dataset import DATASET_DIR
 from project_name.data.data_file_splitting import DataFileSplitter
 from project_name.data.data_preprocessing import AudioPreprocessor
-from project_name.data.data_augmentation import (
-    RawAudioAugmenter, SpectrogramAugmenter
-)
-from project_name.features.audio_feature_extractor import AudioFeatureExtractor
+from project_name.data.data_augmentation import SpectrogramAugmenter
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from project_name.models.spectrogram_cnn import MultiheadEmotionCNN
 from project_name.models.training_procedure import TrainAndEval
-from sklearn.multiclass import OneVsRestClassifier
-from project_name.evaluation.model_evaluation import ModelEvaluator
-from sklearn.decomposition import PCA
 
 import numpy as np
 import random
 
-
-EMOTION_LABELS = {
-    1: 'neutral', 2: 'calm', 3: 'happy', 4: 'sad',
-    5: 'angry', 6: 'fearful', 7: 'disgust', 8: 'surprised'
-}
-INTENSITY_LABELS = {0: 'normal', 1: 'strong'}
-
 N_SPEC_AUGMENTATIONS = 3
-
 
 if __name__ == "__main__":
     seed = None
@@ -58,21 +44,70 @@ if __name__ == "__main__":
 
     # Process spectrogram-based training and test data
     spec_train_data, spec_train_emotion_labels, spec_train_intensity_labels = \
-        spectrogram_preprocessor.process_all(train_data)  # For quick testing
+        spectrogram_preprocessor.process_all(train_data)
 
     print("Spectrogram training data processed.")
 
-    # 🔧 Convert labels to correct type (np.int64 → torch.long later)
+    # Convert labels to correct type (np.int64 → torch.long later)
+    # Otherwise, PyTorch will throw an error
     spec_train_emotion_labels = spec_train_emotion_labels.astype(np.int64)
     spec_train_intensity_labels = spec_train_intensity_labels.astype(np.int64)
-
-    # Flatten spectrograms for SVM input (not used here but kept for completeness)
-    spec_train_flat = spec_train_data.reshape(spec_train_data.shape[0], -1)
-
-    # ____________________________________________
-    #              CNN eval test
-    # ____________________________________________
-    multi_task_cnn = MultiheadEmotionCNN()
     all_labels = (spec_train_emotion_labels, spec_train_intensity_labels)
-    eval_obj = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, multi_task_cnn)
-    eval_obj.train_and_eval_model("holdout")
+
+    # ____________________________________________
+    #        CNN training and evaluation
+    # ____________________________________________
+    #multi_task_cnn = MultiheadEmotionCNN()
+    #eval_obj = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, multi_task_cnn)
+    #eval_obj.train_and_eval_model("k_fold")
+
+    # ____________________________________________
+    #    SVM training and evalutation (emotion)
+    # ____________________________________________
+    emotion_svm = AudioFeatureSVM()
+    # Pass all labels for consistency, even if we only use emotion labels
+    eval_obj_emotion_svm = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, emotion_svm, task="emotion")
+    eval_obj_emotion_svm.train_and_eval_model()
+
+    # ____________________________________________
+    #   SVM training and evalutation (intensity)
+    # ____________________________________________
+    intensity_svm = AudioFeatureSVM()
+    # Pass all labels for consistency, even if we only use emotion labels
+    eval_obj_intensity_svm = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, intensity_svm, task="intensity")
+    eval_obj_intensity_svm.train_and_eval_model()
+
+    # ____________________________________________
+    #        Final test set evaluation (CNN)
+    # ____________________________________________
+    # Process test data for CNN
+    #spectrogram_preprocessor.spectrogram_augmenter = None  # Disable augmentation for test set
+    #spec_test_data, spec_test_emotion_labels, spec_test_intensity_labels = \
+    #    spectrogram_preprocessor.process_all(test_data)
+
+    # Adjust labels to start from 0
+    # Also convert labels to correct type (np.int64 will be torch.long later)
+    #spec_test_emotion_labels = spec_test_emotion_labels.astype(np.int64) - 1
+    #spec_test_intensity_labels = spec_test_intensity_labels.astype(np.int64) - 1
+    #print("Spectrogram test data processed.")
+
+    # Evaluate the trained CNN on the true test set
+    #eval_obj.evaluate_on_testset(
+    #    spec_test_data,
+    #    spec_test_emotion_labels,
+    #    spec_test_intensity_labels
+    #)
+
+    # ____________________________________________
+    #        Final test set evaluation (SVM)
+    # ____________________________________________
+    spectrogram_preprocessor.spectrogram_augmenter = None  # Disable augmentation for test set
+    spec_test_data, spec_test_emotion_labels, spec_test_intensity_labels = spectrogram_preprocessor.process_all(test_data)
+
+    # Emotion SVM evaluation
+    spec_test_emotion_labels = spec_test_emotion_labels.astype(np.int64) - 1
+    eval_obj_emotion_svm.evaluate_on_testset(spec_test_data, spec_test_emotion_labels)
+
+    # Intensity SVM evaluation
+    spec_test_intensity_labels = spec_test_intensity_labels.astype(np.int64) - 1
+    eval_obj_intensity_svm.evaluate_on_testset(spec_test_data, intensity_test_labels=spec_test_intensity_labels)

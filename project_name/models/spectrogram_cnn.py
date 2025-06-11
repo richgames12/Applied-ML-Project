@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+import os
 
 
 class MultiheadEmotionCNN(nn.Module):
@@ -29,7 +30,6 @@ class MultiheadEmotionCNN(nn.Module):
                 Defaults to 1.
         """
         super(MultiheadEmotionCNN, self).__init__()
-        self.dropout_rate = dropout_rate
         # Shared feature extraction blocks
         self.conv_block1 = nn.Sequential(
             nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),  # Expects 2D
@@ -53,7 +53,7 @@ class MultiheadEmotionCNN(nn.Module):
         )
 
         # Shared fully connected layer
-        self.dropout = nn.Dropout(self.dropout_rate)
+        self.dropout = nn.Dropout(dropout_rate)
         self.fc_shared = nn.Linear(64 * 16 * 16, 256)
 
         # Emotion classification head
@@ -61,6 +61,8 @@ class MultiheadEmotionCNN(nn.Module):
 
         # Intensity classification head
         self.fc_intensity = nn.Linear(256, num_intensity)
+
+        self._n_features = None  # To track the number of features after training
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
@@ -124,24 +126,19 @@ class MultiheadEmotionCNN(nn.Module):
 
         return emotion_predictions.cpu(), intensity_predictions.cpu()
 
-    def cross_val_fit(self, val_dataloader: DataLoader, train_dataloader: DataLoader, writer: None | SummaryWriter, epochs: int) -> None:
+    def fit(
+        self,
+        val_dataloader: DataLoader,
+        train_dataloader: DataLoader,
+        writer: None | SummaryWriter = None,
+        epochs: int = 20,
+        learning_rate: float = 1e-3,
+        return_val_score: bool = False
+    ) -> float | None:
         """
-        We fit the model to dual-task dataset.
-
-
-        Args:
-            dataloader: pytorch dataloader that has train data and batch size
-            model: pytorch model
-            writer: tesnorboard writer (if applicable, if not: None)
-            epochs: int number of epochs to train for
-
-        Returns:
-            None
+        Train the model and return average validation loss if requested.
         """
-
-        # We can pass these as parameters to the train method but im setting them
-        # here for simplicity
-        optimizer = optim.Adam(self.parameters())
+        optimizer = optim.Adam(self.parameters(), lr=learning_rate)
         loss_func = nn.CrossEntropyLoss()
         self.train()
         for epoch in range(epochs):
@@ -152,7 +149,6 @@ class MultiheadEmotionCNN(nn.Module):
                 intensity_labels = intensity_labels.to(self.device)
 
                 optimizer.zero_grad()
-
                 emotion_logits, intensity_logits = self(features)
                 loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
                 loss_sum.backward()
@@ -175,8 +171,48 @@ class MultiheadEmotionCNN(nn.Module):
                     'val': (total_val_loss / len(val_dataloader))
                 }, epoch)
 
-    def save_model(self):
-        torch.save(self.model, 'model.pth')
+        avg_val_loss = total_val_loss / len(val_dataloader)
+        if return_val_score:
+            return -avg_val_loss  # Negative loss for maximization in tuning
+        return None
 
-    def load_model(self):
-        pass
+    def save(self, model_name: str = "emotion_cnn") -> None:
+        """Save the model to a file.
+
+        Args:
+            model_name (str): The name of the file to save the model to.
+        """
+        if self._n_features is None:
+            raise ValueError(
+                "Model has not yet been trained, call fit first."
+            )
+        folder = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "saved_models"
+        )
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+        file_path = os.path.join(folder, f"{model_name}.pth")
+
+        torch.save(self, file_path)
+
+    @classmethod
+    def load(cls, file_path: str) -> "MultiheadEmotionCNN":
+        """Load the model from a file.
+
+        Args:
+            file_path (str): The full filepath to load the model from.
+
+        Returns:
+            OneVsRestAudioFeatureSVM: The loaded model.
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Model file {file_path} does not exist.")
+
+        model = torch.load(file_path, map_location=torch.device("cpu"))
+
+        if not isinstance(model, MultiheadEmotionCNN):
+            raise TypeError(
+                f"Loaded model is not of type OneVsRestAudioFeatureSVM, "
+                f"got {type(model)} instead."
+            )
+        return model

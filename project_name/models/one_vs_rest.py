@@ -79,7 +79,7 @@ class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
         joblib.dump(self, file_path)
 
     @classmethod
-    def load(self, file_path: str) -> "OneVsRestAudioFeatureSVM":
+    def load(cls, file_path: str) -> "OneVsRestAudioFeatureSVM":
         """Load the model from a file.
 
         Args:
