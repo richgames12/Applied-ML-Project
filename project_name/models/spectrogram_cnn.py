@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 
 
 class MultiheadEmotionCNN(nn.Module):
@@ -62,6 +62,9 @@ class MultiheadEmotionCNN(nn.Module):
         # Intensity classification head
         self.fc_intensity = nn.Linear(512, num_intensity)
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(self.device)
+
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass through the CNN.
@@ -92,9 +95,6 @@ class MultiheadEmotionCNN(nn.Module):
         intensity_logits = self.fc_intensity(x)
         return emotion_logits, intensity_logits
 
-
-
-
     def predict(self, x: torch.Tensor):
         """
         Predict/classify a batch of spectograms. 
@@ -108,25 +108,48 @@ class MultiheadEmotionCNN(nn.Module):
                 default) and height and width the sizes of the spectrogram.
 
         Returns:
-            index of most likely and thus predicted class for each spectogram in the batch, 
+            index of most likely and thus predicted class for each spectogram in the batch,
             for both tasks
             tuple[ torch.Tensor, torch.Tensor ]: each tensor has size [batch_size]
 
         """
         self.eval()
+        x = x.to(self.device)
         with torch.no_grad():
             emotion_logits, intensity_logits = self(x)
-        
+
         emotion_predictions = torch.argmax(emotion_logits, dim=1)
         intensity_predictions = torch.argmax(intensity_logits, dim=1)
 
+        return emotion_predictions.cpu(), intensity_predictions.cpu()
+
+    def fit_model(self, dataloader, epochs: int):
+        """
+        We fit the model to dual-task dataset.
+
+        Args:
+            dataloader: pytorch dataloader that has train data and batch size
+            model: pytorch model
+            epochs: int number of epochs to train for
 
 
+        Returns:
 
-        return emotion_predictions, intensity_predictions
+        """
+        # We can pass these as parameters to the train method but im setting them
+        # here for simplicity
+        optimizer = optim.Adam(self.parameters())
+        loss_func = nn.CrossEntropyLoss()
+        self.train()
+        for _ in range(epochs):
+            for features, emotion_labels, intensity_labels in dataloader:
+                emotion_logits, intensity_logits = self(features)
+                loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                loss_sum.backward()
+                optimizer.step()
+        return None
 
-
-    def fit_model(self, dataloader, epochs:int):
+    def cross_val_fit(self, test_dataloader: DataLoader, train_dataloader: DataLoader, writer: None | SummaryWriter, epochs: int) -> None:
         """
         We fit the model to dual-task dataset.
 
@@ -134,71 +157,47 @@ class MultiheadEmotionCNN(nn.Module):
         Args:
             dataloader: pytorch dataloader that has train data and batch size
             model: pytorch model
+            writer: tesnorboard writer (if applicable, if not: None)
             epochs: int number of epochs to train for
-            
 
         Returns:
-
+            None
         """
 
-        #We can pass these as parameters to the train method but im setting them 
-        #here for simplicity
+        # We can pass these as parameters to the train method but im setting them
+        # here for simplicity
         optimizer = optim.Adam(self.parameters())
         loss_func = nn.CrossEntropyLoss()
         self.train()
-        train_loss = [] 
-        val_loss = []
         for epoch in range(epochs):
-            total_loss = 0
-            for features, emotion_labels, intensity_labels in dataloader:
+            total_train_loss = 0
+            for features, emotion_labels, intensity_labels in train_dataloader:
+                features = features.to(self.device)
+                emotion_labels = emotion_labels.to(self.device)
+                intensity_labels = intensity_labels.to(self.device)
+
+                optimizer.zero_grad()
+
                 emotion_logits, intensity_logits = self(features)
-                loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
                 loss_sum.backward()
                 optimizer.step()
-        return None
+                total_train_loss += loss_sum.item()
 
-    def cross_val_fit(self, test_dataloader: DataLoader, train_dataloader: DataLoader, writer: None | SummaryWriter , epochs:int) -> None:
-            """
-            We fit the model to dual-task dataset.
-
-
-            Args:
-                dataloader: pytorch dataloader that has train data and batch size
-                model: pytorch model
-                writer: tesnorboard writer (if applicable, if not: None)
-                epochs: int number of epochs to train for
-
-                
-
-            Returns:
-                None  
-            """
-
-            #We can pass these as parameters to the train method but im setting them 
-            #here for simplicity
-            optimizer = optim.Adam(self.parameters())
-            loss_func = nn.CrossEntropyLoss()
-            self.train()
-            for epoch in range(epochs):
-                total_train_loss = 0
-                for features, emotion_labels, intensity_labels in train_dataloader:
+            with torch.no_grad():
+                total_test_loss = 0
+                for features, emotion_labels, intensity_labels in test_dataloader:
+                    features = features.to(self.device)
+                    emotion_labels = emotion_labels.to(self.device)
+                    intensity_labels = intensity_labels.to(self.device)
                     emotion_logits, intensity_logits = self(features)
-                    loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
-                    loss_sum.backward()
-                    optimizer.step()
-                    total_train_loss += loss_sum.item()
-                    
-                with torch.no_grad():
-                    total_test_loss = 0
-                    for features, emotion_labels, intensity_labels in test_dataloader:
-                        emotion_logits, intensity_logits = self(features)
-                        loss_sum =  loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
-                        total_test_loss += loss_sum.item()
-                    
-                if(writer != None):
-                    writer.add_scalars('Loss', {
-                        'train': (total_train_loss / len(train_dataloader)),
-                        'test': (total_test_loss / len(test_dataloader))
-                    }, epoch)
+                    loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                    total_test_loss += loss_sum.item()
 
-            return None
+            if writer is not None:
+                writer.add_scalars('Loss', {
+                    'train': (total_train_loss / len(train_dataloader)),
+                    'test': (total_test_loss / len(test_dataloader))
+                }, epoch)
+
+        return None
