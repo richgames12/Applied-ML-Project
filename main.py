@@ -22,6 +22,8 @@ EMOTION_LABELS = {
 }
 INTENSITY_LABELS = {0: 'normal', 1: 'strong'}
 
+N_SPEC_AUGMENTATIONS = 3
+
 
 if __name__ == "__main__":
     seed = None
@@ -37,7 +39,7 @@ if __name__ == "__main__":
     #                 Data Loading (MFCC)
     # ____________________________________________
     # Initialize the data file splitter
-    splitter = DataFileSplitter(dataset_path=DATASET_DIR, seed=seed)
+    splitter = DataFileSplitter(dataset_path=DATASET_DIR, test_size=0.1, eval_size=0.1, seed=seed)
     train_data, val_data, test_data = splitter.get_data_splits_copy()
 
     # ____________________________________________
@@ -51,7 +53,7 @@ if __name__ == "__main__":
     spectrogram_preprocessor = AudioPreprocessor(
         spectrogram_augmenter=spectrogram_augmenter,
         use_spectrograms=True,
-        n_augmentations=3
+        n_augmentations=N_SPEC_AUGMENTATIONS
     )
 
     # Process spectrogram-based training and test data
@@ -72,5 +74,5 @@ if __name__ == "__main__":
     # ____________________________________________
     multi_task_cnn = MultiheadEmotionCNN()
     all_labels = (spec_train_emotion_labels, spec_train_intensity_labels)
-    eval_obj = TrainAndEval(spec_train_data, all_labels, 3, multi_task_cnn)
+    eval_obj = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, multi_task_cnn)
     eval_obj.train_and_eval_model("holdout")

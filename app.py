@@ -136,9 +136,11 @@ async def main():
         # If the directory does not exist, we can create it
         warning = """
         <h1>Warning</h1>
-        <p>The 'project_name/saved_models' directory does not exist. Please train a model first.</p>
+        <p>The 'project_name/saved_models'
+        directory does not exist. Please train a model first.</p>
         <p>This can be done by running the main.py script.</p>
-        <p>Once a model is trained, it will appear as an option for select model.</p>
+        <p>Once a model is trained,
+        it will appear as an option for select model.</p>
         """
     content = f"""
     <style>
@@ -159,7 +161,9 @@ async def main():
         <form action="/select_model/" method="post">
             <select name="model", type="text">
                 <option value="" disabled selected>Select a model</option>
-                {''.join(f'<option value="{model}">{model}</option>' for model in model_options)}
+                {''.join(
+                    f'<option value="{model}">{model}</option>' for model in model_options
+                )}
             </select>
             <input type="submit">
         </form>
@@ -294,7 +298,9 @@ async def select_model(model: Optional[str] = Form(None)):
                     <label for="audio_files">Select Audio Files:</label>
                     <select name="audio_files" multiple>
                         <option value="" disabled>Select audio files</option>
-                        {''.join(f'<option value="{fname}">{fname}</option>' for fname in audio_files)}
+                        {''.join(
+                            f'<option value="{fname}">{fname}</option>' for fname in audio_files
+                        )}
                     </select>
                     <input type="submit" value="Select Files" class="btn">
                 </form>
@@ -358,7 +364,9 @@ async def feature_selection(
         <h1>Make a Prediction</h1>
         <form action="/predict/" method="post">
             <input type="hidden" name="model" value="{model}">
-            {''.join(f'<input type="hidden" name="audio_files" value="{fname}">' for fname in audio_files)}
+            {''.join(
+                f'<input type="hidden" name="audio_files" value="{fname}">' for fname in audio_files
+            )}
             <input type="submit" value="Predict" class="btn">
         </form>
     </div>
@@ -485,11 +493,14 @@ async def predict(
     </style>
     <div class="container">
         <h1>Prediction Completed</h1>
-        <p>Prediction for selected audio using model <strong>{model}</strong> has been successfully completed.</p>
+        <p>Prediction for selected audio using model
+        <strong>{model}</strong> has been successfully completed.</p>
         <ul>
             <li>Model: {model}</li>
             <li>Audio Files: {', '.join(audio_files)}</li>
-            <li>Predictions: {', '.join(str(pred) for pred in predictions)}</li>
+            <li>Predictions: {', '.join(
+                str(pred) for pred in predictions
+            )}</li>
         </ul>
     </div>
     <div class="page-links">

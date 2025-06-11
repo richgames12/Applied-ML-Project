@@ -15,7 +15,7 @@ class MultiheadEmotionCNN(nn.Module):
     a shared fully connected layer. Then uses 2 separate fully connected heads
     to predict the emotion and intensity classes.
     """
-    def __init__(self, num_emotions=8, num_intensity=2, in_channels=1) -> None:
+    def __init__(self, num_emotions=8, num_intensity=2, in_channels=1, dropout_rate=0.3) -> None:
         """Initialize the CNN with the right convolutional blocks and fully
             connected layers.
 
@@ -29,7 +29,7 @@ class MultiheadEmotionCNN(nn.Module):
                 Defaults to 1.
         """
         super(MultiheadEmotionCNN, self).__init__()
-
+        self.dropout_rate = dropout_rate
         # Shared feature extraction blocks
         self.conv_block1 = nn.Sequential(
             nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),  # Expects 2D
@@ -53,14 +53,14 @@ class MultiheadEmotionCNN(nn.Module):
         )
 
         # Shared fully connected layer
-        self.dropout = nn.Dropout(0.3)
-        self.fc_shared = nn.Linear(64 * 16 * 16, 512)
+        self.dropout = nn.Dropout(self.dropout_rate)
+        self.fc_shared = nn.Linear(64 * 16 * 16, 256)
 
         # Emotion classification head
-        self.fc_emotion = nn.Linear(512, num_emotions)
+        self.fc_emotion = nn.Linear(256, num_emotions)
 
         # Intensity classification head
-        self.fc_intensity = nn.Linear(512, num_intensity)
+        self.fc_intensity = nn.Linear(256, num_intensity)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
@@ -82,6 +82,7 @@ class MultiheadEmotionCNN(nn.Module):
                 and intensity logits size [batch_size, num_intensity].
         """
         # Shared Conv + BN + ReLU + Pool
+        x = x.to(self.device)
         x = self.conv_block1(x)
         x = self.conv_block2(x)
         x = self.conv_block3(x)
@@ -97,7 +98,7 @@ class MultiheadEmotionCNN(nn.Module):
 
     def predict(self, x: torch.Tensor):
         """
-        Predict/classify a batch of spectograms. 
+        Predict/classify a batch of spectograms.
         Do this using argmax on the logits
 
         Args:
@@ -123,33 +124,7 @@ class MultiheadEmotionCNN(nn.Module):
 
         return emotion_predictions.cpu(), intensity_predictions.cpu()
 
-    def fit_model(self, dataloader, epochs: int):
-        """
-        We fit the model to dual-task dataset.
-
-        Args:
-            dataloader: pytorch dataloader that has train data and batch size
-            model: pytorch model
-            epochs: int number of epochs to train for
-
-
-        Returns:
-
-        """
-        # We can pass these as parameters to the train method but im setting them
-        # here for simplicity
-        optimizer = optim.Adam(self.parameters())
-        loss_func = nn.CrossEntropyLoss()
-        self.train()
-        for _ in range(epochs):
-            for features, emotion_labels, intensity_labels in dataloader:
-                emotion_logits, intensity_logits = self(features)
-                loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
-                loss_sum.backward()
-                optimizer.step()
-        return None
-
-    def cross_val_fit(self, test_dataloader: DataLoader, train_dataloader: DataLoader, writer: None | SummaryWriter, epochs: int) -> None:
+    def cross_val_fit(self, val_dataloader: DataLoader, train_dataloader: DataLoader, writer: None | SummaryWriter, epochs: int) -> None:
         """
         We fit the model to dual-task dataset.
 
@@ -185,19 +160,23 @@ class MultiheadEmotionCNN(nn.Module):
                 total_train_loss += loss_sum.item()
 
             with torch.no_grad():
-                total_test_loss = 0
-                for features, emotion_labels, intensity_labels in test_dataloader:
+                total_val_loss = 0
+                for features, emotion_labels, intensity_labels in val_dataloader:
                     features = features.to(self.device)
                     emotion_labels = emotion_labels.to(self.device)
                     intensity_labels = intensity_labels.to(self.device)
                     emotion_logits, intensity_logits = self(features)
                     loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
-                    total_test_loss += loss_sum.item()
+                    total_val_loss += loss_sum.item()
 
             if writer is not None:
                 writer.add_scalars('Loss', {
                     'train': (total_train_loss / len(train_dataloader)),
-                    'test': (total_test_loss / len(test_dataloader))
+                    'val': (total_val_loss / len(val_dataloader))
                 }, epoch)
 
-        return None
+    def save_model(self):
+        torch.save(self.model, 'model.pth')
+
+    def load_model(self):
+        pass
