@@ -26,8 +26,8 @@ if __name__ == "__main__":
     #                 Data Loading (MFCC)
     # ____________________________________________
     # Initialize the data file splitter
-    splitter = DataFileSplitter(dataset_path=DATASET_DIR, test_size=0.1, eval_size=0.1, seed=seed)
-    train_data, val_data, test_data = splitter.get_data_splits_copy()
+    splitter = DataFileSplitter(dataset_path=DATASET_DIR, test_size=0.1, seed=seed)
+    train_data, test_data = splitter.get_data_splits_copy()
 
     # ____________________________________________
     #         Spectrogram Preprocessing
