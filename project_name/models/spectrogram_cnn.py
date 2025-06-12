@@ -17,8 +17,9 @@ class MultiheadEmotionCNN(nn.Module):
     to predict the emotion and intensity classes.
     """
     def __init__(self, num_emotions=8, num_intensity=2, in_channels=1, dropout_rate=0.3) -> None:
-        """Initialize the CNN with the right convolutional blocks and fully
-            connected layers.
+        """
+        Initialize the CNN with the right convolutional blocks and fully
+        connected layers.
 
         Args:
             num_emotions (int, optional): Number of emotions to classify.
@@ -28,6 +29,8 @@ class MultiheadEmotionCNN(nn.Module):
             in_channels (int, optional): The number of layers of the
                 spectogram. Normal 2D specteogram has 1, RGB spectrogram has 3.
                 Defaults to 1.
+            dropout_rate (float, optional): The dropout rate to use in the
+                fully connected layer. Defaults to 0.3.
         """
         super(MultiheadEmotionCNN, self).__init__()
         # Shared feature extraction blocks
@@ -141,7 +144,25 @@ class MultiheadEmotionCNN(nn.Module):
         return_val_score: bool = False
     ) -> float | None:
         """
-        Train the model and return average validation loss if requested.
+        Train the CNN model on the training data and optionally validate it on
+        the validation data.
+
+        Args:
+            train_dataloader (DataLoader): DataLoader for the training data.
+            val_dataloader (DataLoader | None, optional): DataLoader for the validation data.
+                If None, no validation will be performed. Defaults to None.
+            writer (SummaryWriter | None, optional): TensorBoard writer for logging.
+                If None, no logging will be performed. Defaults to None.
+            epochs (int, optional): Number of epochs to train the model for.
+                Defaults to 20.
+            learning_rate (float, optional): The learning rate for the optimizer.
+                Defaults to 1e-3.
+            return_val_score (bool, optional): If True, returns the average validation loss.
+                If False, returns None. Defaults to False.
+
+        Returns:
+            float | None: If `return_val_score` is True, returns the average validation loss.
+                If `return_val_score` is False, returns None.
         """
         self.trained = True
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
@@ -190,7 +211,8 @@ class MultiheadEmotionCNN(nn.Module):
         return None
 
     def save(self, model_name: str = "emotion_cnn") -> None:
-        """Save the model to a file.
+        """
+        Save the model to a file.
 
         Args:
             model_name (str): The name of the file to save the model to.
@@ -210,13 +232,14 @@ class MultiheadEmotionCNN(nn.Module):
 
     @classmethod
     def load(cls, file_path: str) -> "MultiheadEmotionCNN":
-        """Load the model from a file.
+        """
+        Load the model from a file.
 
         Args:
             file_path (str): The full filepath to load the model from.
 
         Returns:
-            OneVsRestAudioFeatureSVM: The loaded model.
+            MultiheadEmotionCNN: The loaded model.
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Model file {file_path} does not exist.")
@@ -225,7 +248,7 @@ class MultiheadEmotionCNN(nn.Module):
 
         if not isinstance(model, MultiheadEmotionCNN):
             raise TypeError(
-                f"Loaded model is not of type OneVsRestAudioFeatureSVM, "
+                f"Loaded model is not of type MultiheadEmotionCNN, "
                 f"got {type(model)} instead."
             )
         return model

@@ -22,6 +22,12 @@ INTENSITY_LABELS = {0: 'normal', 1: 'strong'}
 
 
 class TrainAndEval():
+    """
+    Class to handle training and evaluation of audio models.
+    This class supports training with or without validation, hyperparameter tuning,
+    and evaluation on test sets. It can handle both CNN and SVM models for audio
+    classification tasks, specifically for emotion and intensity recognition.
+    """
     def __init__(
         self,
         aug_features: np.ndarray,
@@ -33,12 +39,42 @@ class TrainAndEval():
         k_fold_splits: int = 5,
         seed: int | None = None
     ) -> None:
+        """
+        Initialize the training and evaluation class.
+        This method sets up the training and evaluation environment.
+
+        Args:
+            aug_features (np.ndarray): The augmented features of the audio data. Also includes the original
+                features, so the shape is (n_samples * (n_augmentations + 1), n_features).
+                The original features are before the augmented features. Like this:
+                [[original_feature_1], [augmented_feature_1_1], [augmented_feature_1_2],
+                [original_feature_2], [augmented_feature_2_1], [augmented_feature_2_2]]]
+            aug_labels (tuple[np.ndarray, np.ndarray]): A tuple containing two numpy arrays:
+                - The first array contains emotion labels (shape: (n_samples * (n_augmentations + 1),)).
+                - The second array contains intensity labels (shape: (n_samples * (n_augmentations + 1),)).
+            n_augmentations (int): The number of augmentations applied to each original sample.
+            model (MultiheadEmotionCNN | AudioFeatureSVM | OneVsRestAudioFeatureSVM): The model to be trained.
+            n_epochs (int, optional): The number of training cycles for CNNs. Defaults to 20.
+            task (str | None, optional): The task type for SVMs, either 'emotion' or 'intensity'.
+                If None, the task is ignored (only relevant for SVMs). Defaults to None.
+            k_fold_splits (int, optional): Number of splits for k-fold cross-validation.
+                Defaults to 5.
+            seed (int | None, optional): The random seed for reproducibility.
+                If None, no seed is set. Defaults to None.
+        """
         # Store features and shift labels to start from 0
         self.aug_features = aug_features
         self.aug_labels = (aug_labels[0] - 1, aug_labels[1] - 1)
         self.n_augmentations = n_augmentations
         self.n_samples = int(aug_features.shape[0] / (n_augmentations + 1))
+
+        # Set random seed for reproducibility
         self.seed = seed
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            torch.manual_seed(self.seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(self.seed)
 
         # Model and training setup
         self.model = model
@@ -58,7 +94,12 @@ class TrainAndEval():
 
     def train_no_split(self, params: dict | None = None) -> None:
         """
-        Train the model on all available data (no validation or cross-validation).
+        Train the model without splitting the data.
+        This method trains the model on the entire dataset without validation.
+
+        Args:
+            params (dict | None, optional): A dictionary of model and training parameters.
+                If None, the best parameters are used if available, otherwise default parameters are used.
         """
         if params is None:
             # If no model parameters are provided, use best parameters if available
@@ -68,20 +109,7 @@ class TrainAndEval():
                 # Default model parameters if none are provided
                 params = {}
 
-        model_params = {
-            param_name: param_value
-            for param_name, param_value in params.items()
-            if param_name in [
-                "dropout_rate",
-                "regularization_parameter",
-                "kernel"
-            ]
-        }
-        train_params = {
-            param_name: param_value
-            for param_name, param_value in params.items()
-            if param_name not in model_params
-        }
+        model_params, train_params = self._filter_params(params)
 
         if self.model.type == "CNN":
             self._train_CNN_split(
@@ -114,9 +142,29 @@ class TrainAndEval():
         learning_rate: float = 1e-3,
         batch_size: int = 32,
         return_val_score: bool = False,
-        model_params=None
+        model_params: dict | None = None
     ) -> float | None:
-        """Evaluate using k-fold cross-validation"""
+        """
+        Train the model using k-fold cross-validation.
+
+        Args:
+            k_folds (int, optional): The number of folds for k-fold cross-validation.
+                Defaults to 5.
+            n_epoch (int, optional): The number of training epochs for CNNs.
+                Defaults to 20.
+            learning_rate (float, optional): The learning rate of the optimizer for CNNs.
+                Defaults to 1e-3.
+            batch_size (int, optional): The batch size for training CNNs.
+                Defaults to 32.
+            return_val_score (bool, optional): Return the average validation score across all folds.
+                If True, the method returns the average validation score. Defaults to False.
+            model_params (dict | None, optional): The model parameters to use for training. If None,
+                the default parameters are used. Defaults to None.
+
+        Returns:
+            float | None: Returns the average validation score across all folds
+                if `return_val_score` is True, otherwise returns None.
+        """
         n_total = self.n_samples
         n_aug = self.n_augmentations
         # Generate indices for k-fold cross-validation
@@ -194,14 +242,35 @@ class TrainAndEval():
         # If we don't want to return the validation score, we just return None
         return None
 
-    def _holdout(self, val_proportion: float = 0.2, n_epoch=20, learning_rate=1e-3, batch_size=32, return_val_score=False, model_params=None) -> None:
+    def _holdout(
+        self,
+        val_proportion: float = 0.2,
+        n_epoch: int = 20,
+        learning_rate: float = 1e-3,
+        batch_size: int = 32,
+        return_val_score: bool = False,
+        model_params: dict | None = None
+    ) -> float | None:
         """
-        Evaluate using holdout data split with shuffling.
+        Train the model using a holdout validation strategy.
+
         Args:
-            val_proportion: float, proportion of data to use for validation (default 0.2)
+            val_proportion (float, optional): The proportion of the dataset to be used for validation.
+            n_epoch (int, optional): The number of training epochs for CNNs. Defaults to 20.
+            learning_rate (float, optional): The learning rate of the optimizer for CNNs. Defaults to 1e-3.
+            batch_size (int, optional): The batch size for training CNNs. Defaults to 32.
+            return_val_score (bool, optional): The flag to return the average validation score.
+                If True, the method returns the average validation score. Defaults to False.
+            model_params (dict | None, optional): The model parameters to use for training. If None,
+                the default parameters are used. Defaults to None.
+
+        Returns:
+            float | None: If `return_val_score` is True, returns the average validation score.
         """
         n_aug = self.n_augmentations
 
+        if self.seed is not None:
+            np.random.seed(self.seed)
         # Shuffle original indices using np.random
         orig_indices = np.arange(self.n_samples)
         np.random.shuffle(orig_indices)
@@ -267,11 +336,19 @@ class TrainAndEval():
         if return_val_score:
             return val_score
 
-    def _data_split(self, data: np.ndarray, val_begin: int, val_end: int) -> tuple:
-        """Split data into test and validation sets
-        args:
-        data: np.ndarray, data to be split
-        val
+    def _data_split(self, data: np.ndarray, val_begin: int, val_end: int) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Split the data into validation and training sets.
+        Makes sure to handle the augmentation correctly by
+        considering the number of augmentations.
+
+        Args:
+            data (np.ndarray): The shuffled data to be split.
+            val_begin (int): The starting index for the validation set.
+            val_end (int): The ending index for the validation set.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: The validation and training data.
         """
         val_begin *= (self.n_augmentations + 1)
         val_end *= (self.n_augmentations + 1)
@@ -289,13 +366,41 @@ class TrainAndEval():
         val_features: np.ndarray | None = None,
         emotion_val_labels: np.ndarray | None = None,
         intensity_val_labels: np.ndarray | None = None,
-        n_epoch=20,
-        learning_rate=1e-3,
-        batch_size=32,
-        writer=None,
-        return_val_score=False,
+        n_epoch: int = 20,
+        learning_rate: float = 1e-3,
+        batch_size: int = 32,
+        writer: SummaryWriter | None = None,
+        return_val_score: bool = False,
         model_params: dict = None
     ) -> float | None:
+        """
+        Train the MultiheadEmotionCNN model with the provided features and labels.
+
+        Args:
+            train_features (np.ndarray): The training features of the audio data.
+            emotion_train_labels (np.ndarray): The emotion labels for the training data.
+            intensity_train_labels (np.ndarray): The intensity labels for the training data.
+            val_features (np.ndarray | None, optional): The validation features of the audio data.
+                If None, no validation is performed. Defaults to None.
+            emotion_val_labels (np.ndarray | None, optional): The emotion labels for the validation data.
+                If None, no validation is performed. Defaults to None.
+            intensity_val_labels (np.ndarray | None, optional): The intensity labels for the validation data.
+                If None, no validation is performed. Defaults to None.
+            n_epoch (int, optional): The number of training epochs for the CNN model. Defaults to 20.
+            learning_rate (float, optional): The learning rate of the optimizer for the CNN model.
+                Defaults to 1e-3.
+            batch_size (int, optional): The batch size for training the CNN model.
+                Defaults to 32.
+            writer (SummaryWriter | None, optional): The TensorBoard writer for logging training metrics.
+                If None, no logging is performed. Defaults to None.
+            return_val_score (bool, optional): The flag to return the average validation score.
+                If True, the method returns the average validation score. Defaults to False.
+            model_params (dict, optional): The model parameters to use for training. If None,
+                the default parameters are used. Defaults to None.
+
+        Returns:
+            float | None: If `return_val_score` is True, returns the average validation score.
+        """
         if model_params is None:
             model_params = {}
 
@@ -334,12 +439,29 @@ class TrainAndEval():
     def _train_SVM_split(
         self,
         train_features: np.ndarray,
-        train_labels: np.ndarray,  # Now generic: can be emotion or intensity
+        train_labels: np.ndarray,  # Can be emotion or intensity
         val_features: np.ndarray = None,
         val_labels: np.ndarray = None,
         return_val_score: bool = False,
         model_params: dict = None
-    ):
+    ) -> float | None:
+        """
+        Train the SVM model with the provided features and labels.
+        Can train both AudioFeatureSVM and OneVsRestAudioFeatureSVM models.
+
+        Args:
+            train_features (np.ndarray): The training features of the audio data.
+            train_labels (np.ndarray): The labels for the training data. Can be emotion or intensity labels.
+            val_features (np.ndarray, optional): The validation features of the audio data. Defaults to None.
+            val_labels (np.ndarray, optional): The labels for the validation data. Defaults to None.
+            return_val_score (bool, optional): If True, returns the validation score.
+                Defaults to False.
+            model_params (dict, optional): The model parameters to use for training. If None,
+                the default parameters are used. Defaults to None.
+
+        Returns:
+            float | None: If `return_val_score` is True, returns the validation score.
+        """
         if model_params is None:
             model_params = {}
 
@@ -367,7 +489,17 @@ class TrainAndEval():
 
         return None
 
-    def _mc_uncertainty(self, eval_data, n=100):
+    def _mc_uncertainty(self, eval_data: torch.Tensor, n: int = 100) -> None:
+        """
+        Determine the uncertainty of the model using Monte Carlo dropout.
+        This method performs multiple forward passes through the model with dropout enabled
+        to estimate the uncertainty of the model's predictions.
+
+        Args:
+            eval_data (torch.Tensor): The evaluation data to be used for uncertainty estimation.
+            n (int, optional): The number of forward passes to perform for uncertainty estimation.
+                Defaults to 100.
+        """
         # currently for a single sample
         self.model.train()  # to enable dropout, because no grad or step this wont update weights
         outcomes = []
@@ -440,9 +572,6 @@ class TrainAndEval():
                 "k_fold" or "holdout" Defaults to "k_fold".
             model_name (str, optional): Name of the model to save after tuning. If None,
                 the model will not be saved. Defaults to "best_model".
-
-        Raises:
-            ValueError: If an unknown cross-validation type is provided.
         """
         for params in tqdm(param_grid, desc="Hyperparameter tuning"):
 
@@ -471,13 +600,29 @@ class TrainAndEval():
             print(f"Saving best model to {model_name}.")
             self.model.save("best_model")
 
-    def evaluate_on_testset(self, test_features, emotion_test_labels: np.ndarray = None, intensity_test_labels: np.ndarray = None, title_suffix: str = "") -> None:
+    def evaluate_on_testset(
+        self,
+        test_features: np.ndarray,
+        emotion_test_labels: np.ndarray = None,
+        intensity_test_labels: np.ndarray = None,
+        title_suffix: str = ""
+    ) -> None:
         """
-        Evaluate the model on the test set and write metrics.
+        Evaluate the trained model on the test set.
+        This method evaluates the model's performance on the test set
+        and logs the results using ModelEvaluator. Both emotion and intensity
+        labels are required for MultiheadEmotionCNN, while only one set of labels
+        is required for AudioFeatureSVM or OneVsRestAudioFeatureSVM depending on the task.
+
         Args:
-            test_features: np.ndarray or torch.Tensor, test features
-            emotion_test_labels: np.ndarray, true emotion labels
-            intensity_test_labels: np.ndarray, true intensity labels
+            test_features (np.ndarray): The features of the test set. Should be of shape
+                (n_samples, n_features). For CNNs, this should be the spectrograms.
+            emotion_test_labels (np.ndarray, optional): The corresponding emotion labels for the test set.
+                Defaults to None.
+            intensity_test_labels (np.ndarray, optional): The corresponding intensity labels for the test set.
+                Defaults to None.
+            title_suffix (str, optional): The suffix to be added to the evaluation title.
+                Defaults to "".
         """
         emotion_evaluator = ModelEvaluator(EMOTION_LABELS)
         intensity_evaluator = ModelEvaluator(INTENSITY_LABELS)
