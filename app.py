@@ -2,7 +2,7 @@ from project_name.models.audio_feature_svm import AudioFeatureSVM
 from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
 from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
-from main import INTENSITY_LABELS, EMOTION_LABELS
+from project_name.models.training_procedure import EMOTION_LABELS, INTENSITY_LABELS
 
 from typing import Annotated, Optional, Union
 import os

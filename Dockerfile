@@ -17,6 +17,8 @@ WORKDIR /code
 # Install dependencies first before copying code
 COPY requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir -r /code/requirements.txt
+# Install CPU-only PyTorch 
+RUN pip install --no-cache-dir torch
 
 # Copy everything into the working directory
 # .dockerignore is used to filter out the audiofiles
