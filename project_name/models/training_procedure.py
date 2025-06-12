@@ -424,7 +424,7 @@ class TrainAndEval():
         }
         return model_params, train_params
 
-    def hyperparameter_tune(self, param_grid: list[dict], cross_val="k_fold"):
+    def hyperparameter_tune(self, param_grid: list[dict], cross_val="k_fold", model_name: str | None = "best_model") -> None:
         """
         Perform hyperparameter tuning using the provided parameter grid.
         This method iterates over the parameter grid and evaluates the model.
@@ -438,6 +438,8 @@ class TrainAndEval():
                 and so on for other parameters. Default values are used if not provided.
             cross_val (str, optional): The type of cross validation to use.
                 "k_fold" or "holdout" Defaults to "k_fold".
+            model_name (str, optional): Name of the model to save after tuning. If None,
+                the model will not be saved. Defaults to "best_model".
 
         Raises:
             ValueError: If an unknown cross-validation type is provided.
@@ -464,7 +466,10 @@ class TrainAndEval():
         # Retrain best model on all training data
         print("Retraining best model on all training data...")
         self.train_no_split()
-        self.model.save("best_model")
+        if model_name is not None:
+            # Save the best model
+            print(f"Saving best model to {model_name}.")
+            self.model.save("best_model")
 
     def evaluate_on_testset(self, test_features, emotion_test_labels: np.ndarray = None, intensity_test_labels: np.ndarray = None, title_suffix: str = "") -> None:
         """
