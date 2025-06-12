@@ -1,5 +1,6 @@
 from project_name.models.spectrogram_cnn import MultiheadEmotionCNN
 from project_name.models.audio_feature_svm import AudioFeatureSVM
+from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
 
 import numpy as np
 import torch
@@ -9,6 +10,7 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import f1_score
 from project_name.evaluation.model_evaluation import ModelEvaluator
 from datetime import datetime
+from tqdm import tqdm
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -25,7 +27,7 @@ class TrainAndEval():
         aug_features: np.ndarray,
         aug_labels: tuple[np.ndarray, np.ndarray],
         n_augmentations: int,
-        model: MultiheadEmotionCNN | AudioFeatureSVM,
+        model: MultiheadEmotionCNN | AudioFeatureSVM | OneVsRestAudioFeatureSVM,
         n_epochs: int = 20,
         task: str | None = None,  # 'emotion' or 'intensity' for SVM; ignored for CNN
         k_fold_splits: int = 5,
@@ -44,9 +46,6 @@ class TrainAndEval():
         self.k_fold_splits = k_fold_splits
         self.task = task
 
-        # Store the initial model parameters
-        self.model_settings = model.get_params()
-
         self.best_params = None
         self.best_score = -np.inf  # Initialize to negative infinity for maximization
 
@@ -57,7 +56,7 @@ class TrainAndEval():
         logdir = f"logs/run_{datetime.now():%Y%m%d_%H%M%S}"
         self.writer = SummaryWriter(logdir)
 
-    def train_and_eval_model(self, params: dict | None = None) -> None:
+    def train_no_split(self, params: dict | None = None) -> None:
         """
         Train the model on all available data (no validation or cross-validation).
         """
@@ -84,7 +83,7 @@ class TrainAndEval():
             if param_name not in model_params
         }
 
-        if isinstance(self.model, MultiheadEmotionCNN):
+        if self.model.type == "CNN":
             self._train_CNN_split(
                 train_features=self.aug_features,
                 val_features=None,
@@ -99,7 +98,7 @@ class TrainAndEval():
                 return_val_score=False,
                 model_params=model_params
             )
-        elif isinstance(self.model, AudioFeatureSVM):
+        elif self.model.type == "SVM":
             self._train_SVM_split(
                 train_features=self.aug_features,
                 train_labels=self.aug_labels[0] if self.task == "emotion" else self.aug_labels[1],
@@ -141,13 +140,13 @@ class TrainAndEval():
             train_features = self.aug_features[train_aug_idx]
             val_features = self.aug_features[val_orig_idx]
 
-            if isinstance(self.model, MultiheadEmotionCNN):
+            if self.model.type == "CNN":
                 # For MultiheadEmotionCNN, we have two sets of labels
                 train_emotion_labels = self.aug_labels[0][train_aug_idx]
                 train_intens_labels = self.aug_labels[1][train_aug_idx]
                 val_emote_labels = self.aug_labels[0][val_orig_idx]
                 val_intens_labels = self.aug_labels[1][val_orig_idx]
-            elif isinstance(self.model, AudioFeatureSVM):
+            elif self.model.type == "SVM":
                 # For AudioFeatureSVM, we have one set of labels depending on the task
                 if self.task == "emotion":
                     train_labels = self.aug_labels[0][train_aug_idx]
@@ -158,7 +157,7 @@ class TrainAndEval():
                 else:
                     raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
 
-            if isinstance(self.model, MultiheadEmotionCNN):
+            if self.model.type == "CNN":
                 val_score = self._train_CNN_split(
                     train_features=train_features,
                     val_features=val_features,
@@ -175,7 +174,7 @@ class TrainAndEval():
                 )
                 self.writer.close()
 
-            elif isinstance(self.model, AudioFeatureSVM):
+            elif self.model.type == "SVM":
                 val_score = self._train_SVM_split(
                     train_features=train_features,
                     train_labels=train_labels,
@@ -187,7 +186,7 @@ class TrainAndEval():
 
             if return_val_score and val_score is not None:
                 total_val_score = total_val_score + val_score
-
+            print(val_score)
         if return_val_score:
             # If we want to return the validation score, we can return the last one
             return total_val_score / k_folds
@@ -223,12 +222,13 @@ class TrainAndEval():
 
         # Split labels according to the same indices
         # If the model is MultiheadEmotionCNN, we have two sets of labels
-        if isinstance(self.model, MultiheadEmotionCNN):
+        if self.model.type == "CNN":
             shuffled_emotion_labels = self.aug_labels[0][aug_indices]
             shuffled_intensity_labels = self.aug_labels[1][aug_indices]
             val_emotion_labels, train_emotion_labels = self._data_split(shuffled_emotion_labels, val_begin, val_end)
             val_intensity_labels, train_intensity_labels = self._data_split(shuffled_intensity_labels, val_begin, val_end)
-        elif isinstance(self.model, AudioFeatureSVM):
+        elif self.model.type == "SVM":
+            # For AudioFeatureSVM, we have one set of labels depending on the task
             if self.task == "emotion":
                 shuffled_labels = self.aug_labels[0][aug_indices]
             elif self.task == "intensity":
@@ -237,7 +237,7 @@ class TrainAndEval():
                 raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
             val_labels, train_labels = self._data_split(shuffled_labels, val_begin, val_end)
 
-        if isinstance(self.model, MultiheadEmotionCNN):
+        if self.model.type == "CNN":
             val_score = self._train_CNN_split(
                 train_features=train_features,
                 val_features=val_features,
@@ -254,7 +254,7 @@ class TrainAndEval():
             )
             self.writer.close()
 
-        elif isinstance(self.model, AudioFeatureSVM):
+        elif self.model.type == "SVM":
             val_score = self._train_SVM_split(
                 train_features=train_features, 
                 val_features=val_features,
@@ -282,10 +282,18 @@ class TrainAndEval():
 
     def _train_CNN_split(
         self,
-        train_features, val_features,
-        emotion_train_labels, emotion_val_labels,
-        intensity_train_labels, intensity_val_labels,
-        n_epoch=20, learning_rate=1e-3, batch_size=32, writer=None, return_val_score=False,
+        train_features: np.ndarray,
+        emotion_train_labels: np.ndarray,
+        intensity_train_labels: np.ndarray,
+        # Validation data can be None if no validation is needed
+        val_features: np.ndarray | None = None,
+        emotion_val_labels: np.ndarray | None = None,
+        intensity_val_labels: np.ndarray | None = None,
+        n_epoch=20,
+        learning_rate=1e-3,
+        batch_size=32,
+        writer=None,
+        return_val_score=False,
         model_params: dict = None
     ) -> float | None:
         if model_params is None:
@@ -297,17 +305,22 @@ class TrainAndEval():
             torch.tensor(emotion_train_labels, dtype=torch.long),
             torch.tensor(intensity_train_labels, dtype=torch.long)
         )
-        val_dataset = TensorDataset(
-            torch.tensor(val_features, dtype=torch.float32),
-            torch.tensor(emotion_val_labels, dtype=torch.long),
-            torch.tensor(intensity_val_labels, dtype=torch.long)
-        )
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+        if val_features is not None and emotion_val_labels is not None and intensity_val_labels is not None:
+            val_dataset = TensorDataset(
+                torch.tensor(val_features, dtype=torch.float32),
+                torch.tensor(emotion_val_labels, dtype=torch.long),
+                torch.tensor(intensity_val_labels, dtype=torch.long)
+            )
+            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        else:
+            val_loader = None
 
         self.model = MultiheadEmotionCNN(**model_params)
 
         # Call the model's training method and return validation score if required
+        # Pass val_loader to the model's fit method (it should be able to handle None)
         val_score = self.model.fit(
             val_dataloader=val_loader,
             train_dataloader=train_loader,
@@ -336,7 +349,11 @@ class TrainAndEval():
         spec_train_reduced = self.pca.fit_transform(spec_train_flat)
 
         # Train SVM for the current task
-        self.model = AudioFeatureSVM(**model_params, seed=self.seed)
+        if isinstance(self.model, OneVsRestAudioFeatureSVM):
+            self.model = OneVsRestAudioFeatureSVM(**model_params, seed=self.seed)
+        else:
+            self.model = AudioFeatureSVM(**model_params, seed=self.seed)
+
         self.model.fit(spec_train_reduced, train_labels)
         print("Spectrogram-based SVM trained.")
 
@@ -366,25 +383,70 @@ class TrainAndEval():
         print(mean_class_probs)
         print(class_std)
 
-    def _hyperparameter_tune(self, param_grid, cross_val="k_fold"):
-        for params in param_grid:
+    def _filter_params(self, params: dict) -> tuple[dict, dict]:
+        """
+        Filter model and training parameters from the provided dictionary.
+        Only parameters that are relevant for the model and training
+        are returned. This is useful for hyperparameter tuning.
+
+        Args:
+            params (dict): Dictionary of parameters to filter.
+
+        Returns:
+            tuple[dict, dict]: Filtered model parameters and training parameters.
+        """
+        if self.model.type == "CNN":
+            model_param_names = [
+                "dropout_rate",
+            ]
+        elif self.model.type == "SVM":
+            model_param_names = [
+                "regularization_parameter",
+                "kernel",
+                "gamma",
+                "max_iter",
+            ]
+        train_param_names = [
+            "n_epoch",
+            "learning_rate",
+            "batch_size"
+        ]
+
+        model_params = {
+            param_name: param_value
+            for param_name, param_value in params.items()
+            if param_name in model_param_names
+        }
+        train_params = {
+            param_name: param_value
+            for param_name, param_value in params.items()
+            if param_name in train_param_names
+        }
+        return model_params, train_params
+
+    def hyperparameter_tune(self, param_grid: list[dict], cross_val="k_fold"):
+        """
+        Perform hyperparameter tuning using the provided parameter grid.
+        This method iterates over the parameter grid and evaluates the model.
+
+        Args:
+            param_grid (list[dict]): List of dictionaries, where each dictionary
+                contains a set of parameters to evaluate. Each dictionary should 
+                contain keys for both model and training parameters, e.g.:
+                {dropout_rate: 0.5, regularization_parameter: 0.01, kernel: 'rbf',
+                gamma: 0.1, n_epoch: 20, learning_rate: 0.001, batch_size: 32}
+                and so on for other parameters. Default values are used if not provided.
+            cross_val (str, optional): The type of cross validation to use.
+                "k_fold" or "holdout" Defaults to "k_fold".
+
+        Raises:
+            ValueError: If an unknown cross-validation type is provided.
+        """
+        for params in tqdm(param_grid, desc="Hyperparameter tuning"):
 
             # Split parameters into model and training parameters
-            model_params = {
-                param_name: param_value
-                for param_name, param_value in params.items()
-                if param_name in [
-                    "dropout_rate",
-                    "regularization_parameter",
-                    "kernel"
-                ]
-            }
-            train_params = {
-                param_name: param_value
-                for param_name, param_value in params.items()
-                if param_name not in model_params
-            }
-
+            model_params, train_params = self._filter_params(params)
+            print(model_params, train_params)
             # Model parameters are used to initialize the model while training parameters
             # are used to fit the model
             if cross_val == "k_fold":
@@ -393,37 +455,18 @@ class TrainAndEval():
                 val_score = self._holdout(return_val_score=True, **train_params, model_params=model_params)
             else:
                 raise ValueError("Unknown cross-validation type.")
-
             if val_score > self.best_score:
                 self.best_score = val_score
                 self.best_params = params
 
-        # Retrain best model on all training data
-        # (repeat the split above to get model_params and train_params)
-        model_params = {
-            param_name: param_value
-            for param_name, param_value in params.items()
-            if param_name in [
-                "dropout_rate",
-                "regularization_parameter",
-                "kernel"
-            ]
-        }
-        train_params = {
-            param_name: param_value
-            for param_name, param_value in params.items()
-            if param_name not in model_params
-        }
-        if isinstance(self.model, MultiheadEmotionCNN):
-            self.model = MultiheadEmotionCNN(**model_params)
-            self.model.fit(self.aug_features, self.aug_labels[0], **train_params)
-        elif isinstance(self.model, AudioFeatureSVM):
-            self.model = AudioFeatureSVM(**model_params)
-            self.model.fit(self.aug_features, self.aug_labels[0])
-        self.model.save("best_model")
-        print(f"Best hyperparameters: {self.best_params}, Validation score: {self.best_score}")
+        print(f"Best validation score: {self.best_score} with parameters: {self.best_params}")
 
-    def evaluate_on_testset(self, test_features, emotion_test_labels: np.ndarray = None, intensity_test_labels: np.ndarray = None) -> None:
+        # Retrain best model on all training data
+        print("Retraining best model on all training data...")
+        self.train_no_split()
+        self.model.save("best_model")
+
+    def evaluate_on_testset(self, test_features, emotion_test_labels: np.ndarray = None, intensity_test_labels: np.ndarray = None, title_suffix: str = "") -> None:
         """
         Evaluate the model on the test set and write metrics.
         Args:
@@ -434,7 +477,7 @@ class TrainAndEval():
         emotion_evaluator = ModelEvaluator(EMOTION_LABELS)
         intensity_evaluator = ModelEvaluator(INTENSITY_LABELS)
 
-        if isinstance(self.model, MultiheadEmotionCNN):
+        if self.model.type == "CNN":
             if emotion_test_labels is None or intensity_test_labels is None:
                 raise ValueError("Both emotion and intensity test labels must be provided for MultiheadEmotionCNN.")
 
@@ -445,10 +488,10 @@ class TrainAndEval():
                 predictions = self.model.predict(test_features_tensor)
                 emotion_predictions = predictions[0].numpy()
                 intensity_predictions = predictions[1].numpy()
-            emotion_evaluator.evaluate_from_predictions(emotion_test_labels, emotion_predictions)
-            intensity_evaluator.evaluate_from_predictions(intensity_test_labels, intensity_predictions)
+            emotion_evaluator.evaluate_from_predictions(emotion_test_labels, emotion_predictions, title_suffix=title_suffix)
+            intensity_evaluator.evaluate_from_predictions(intensity_test_labels, intensity_predictions, title_suffix=title_suffix)
 
-        elif isinstance(self.model, AudioFeatureSVM):
+        elif self.model.type == "SVM":
             test_flat = test_features.reshape(test_features.shape[0], -1)
             test_reduced = self.pca.transform(test_flat)
             predictions = self.model.predict(test_reduced)
@@ -458,11 +501,13 @@ class TrainAndEval():
                 if emotion_test_labels is None:
                     raise ValueError("Emotion test labels must be provided for emotion SVM.")
 
-                emotion_evaluator.evaluate_from_predictions(emotion_test_labels, predictions)
+                emotion_evaluator.evaluate_from_predictions(emotion_test_labels, predictions, title_suffix=title_suffix)
             elif self.task == "intensity":
                 if intensity_test_labels is None:
                     raise ValueError("Intensity test labels must be provided for intensity SVM.")
 
-                intensity_evaluator.evaluate_from_predictions(intensity_test_labels, predictions)
+                intensity_evaluator.evaluate_from_predictions(intensity_test_labels, predictions, title_suffix=title_suffix)
             else:
                 raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
+        else:
+            raise ValueError("Unknown model type. Cannot evaluate on test set.")

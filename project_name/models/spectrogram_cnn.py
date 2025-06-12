@@ -62,8 +62,9 @@ class MultiheadEmotionCNN(nn.Module):
         # Intensity classification head
         self.fc_intensity = nn.Linear(256, num_intensity)
 
-        self._n_features = None  # To track the number of features after training
+        self.trained = False  # To track the number of features after training
 
+        self.type = "CNN"
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
 
@@ -116,6 +117,10 @@ class MultiheadEmotionCNN(nn.Module):
             tuple[ torch.Tensor, torch.Tensor ]: each tensor has size [batch_size]
 
         """
+        if not self.trained:
+            raise ValueError(
+                "Model has not yet been trained, call fit() first."
+            )
         self.eval()
         x = x.to(self.device)
         with torch.no_grad():
@@ -128,8 +133,8 @@ class MultiheadEmotionCNN(nn.Module):
 
     def fit(
         self,
-        val_dataloader: DataLoader,
         train_dataloader: DataLoader,
+        val_dataloader: DataLoader | None = None,  # It can be None if no validation is needed
         writer: None | SummaryWriter = None,
         epochs: int = 20,
         learning_rate: float = 1e-3,
@@ -138,6 +143,7 @@ class MultiheadEmotionCNN(nn.Module):
         """
         Train the model and return average validation loss if requested.
         """
+        self.trained = True
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
         loss_func = nn.CrossEntropyLoss()
         self.train()
@@ -155,25 +161,32 @@ class MultiheadEmotionCNN(nn.Module):
                 optimizer.step()
                 total_train_loss += loss_sum.item()
 
-            with torch.no_grad():
-                total_val_loss = 0
-                for features, emotion_labels, intensity_labels in val_dataloader:
-                    features = features.to(self.device)
-                    emotion_labels = emotion_labels.to(self.device)
-                    intensity_labels = intensity_labels.to(self.device)
-                    emotion_logits, intensity_logits = self(features)
-                    loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
-                    total_val_loss += loss_sum.item()
+            # Only run validation if val_dataloader is provided
+            if val_dataloader is not None:
+                with torch.no_grad():
+                    total_val_loss = 0
+                    for features, emotion_labels, intensity_labels in val_dataloader:
+                        features = features.to(self.device)
+                        emotion_labels = emotion_labels.to(self.device)
+                        intensity_labels = intensity_labels.to(self.device)
+                        emotion_logits, intensity_logits = self(features)
+                        loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                        total_val_loss += loss_sum.item()
 
-            if writer is not None:
-                writer.add_scalars('Loss', {
-                    'train': (total_train_loss / len(train_dataloader)),
-                    'val': (total_val_loss / len(val_dataloader))
-                }, epoch)
+                if writer is not None:
+                    writer.add_scalars('Loss', {
+                        'train': (total_train_loss / len(train_dataloader)),
+                        'val': (total_val_loss / len(val_dataloader))
+                    }, epoch)
+            else:
+                if writer is not None:
+                    writer.add_scalar('Loss/train', (total_train_loss / len(train_dataloader)), epoch)
 
-        avg_val_loss = total_val_loss / len(val_dataloader)
-        if return_val_score:
-            return -avg_val_loss  # Negative loss for maximization in tuning
+        # Only return validation loss if validation was performed
+        if val_dataloader is not None:
+            avg_val_loss = total_val_loss / len(val_dataloader)
+            if return_val_score:
+                return -avg_val_loss  # Negative loss for maximization in tuning
         return None
 
     def save(self, model_name: str = "emotion_cnn") -> None:
@@ -182,9 +195,9 @@ class MultiheadEmotionCNN(nn.Module):
         Args:
             model_name (str): The name of the file to save the model to.
         """
-        if self._n_features is None:
+        if not self.trained:
             raise ValueError(
-                "Model has not yet been trained, call fit first."
+                "Model has not yet been trained, call fit() first."
             )
         folder = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "saved_models"

@@ -11,6 +11,7 @@ class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
 
     def __init__(self, **kwargs):
         super().__init__(AudioFeatureSVM(**kwargs))
+        self.type = "SVM"
         self._n_features = None
 
     def fit(self, features: np.ndarray, labels: np.ndarray) -> "OneVsRestAudioFeatureSVM":
@@ -58,7 +59,7 @@ class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
             )
 
         return super().predict(features)
-    
+
     def save(self, model_name: str = "emotion_svm") -> None:
         """Save the model to a file.
 

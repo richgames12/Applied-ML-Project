@@ -15,6 +15,7 @@ class AudioFeatureSVM:
             regularization_parameter: float = 1.0,
             gamma: str = "scale",
             probability: bool = False,
+            max_iter: int = -1,
             seed: int | None = None
     ) -> None:
         """
@@ -33,6 +34,8 @@ class AudioFeatureSVM:
                 training). If False, training is faster, and predict_proba
                 will return softmax-transformed decision scores. Defaults to
                 False.
+            max_iter (int, optional): The maximum number of iterations for the
+                underlying SVC. Defaults to -1, which means no limit.
             seed (int | None, optional): The seed for sklearn functions.
                 Defaults to None.
         """
@@ -40,6 +43,7 @@ class AudioFeatureSVM:
         self.regularization_parameter = regularization_parameter
         self.gamma = gamma
         self.use_probabilities = probability
+        self.max_iter = max_iter
         self.seed = seed
         self.type = "SVM"
 
@@ -48,6 +52,7 @@ class AudioFeatureSVM:
             C=self.regularization_parameter,
             gamma=self.gamma,
             probability=self.use_probabilities,
+            max_iter=self.max_iter,
             random_state=self.seed
         )
         self._n_features = None
@@ -184,6 +189,7 @@ class AudioFeatureSVM:
             "regularization_parameter": self.regularization_parameter,
             "gamma": self.gamma,
             "probability": self.use_probabilities,
+            "max_iter": self.max_iter,
             "seed": self.seed
         }
 
@@ -205,6 +211,7 @@ class AudioFeatureSVM:
             C=self.regularization_parameter,
             gamma=self.gamma,
             probability=self.use_probabilities,
+            max_iter=self.max_iter,
             random_state=self.seed
         )
         return self
