@@ -13,12 +13,12 @@
 
   - **For CUDA 12.1 (NVIDIA GPU):**
     ```bash
-    $python pip install torch --index-url https://download.pytorch.org/whl/cu121
+    $python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
     ```
 
   - **For CPU-only (no GPU):**
     ```bash
-    $python pip install torch
+    $python -m pip install torch
     ```
 
 - Third download the dataset

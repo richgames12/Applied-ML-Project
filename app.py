@@ -1,10 +1,12 @@
 from project_name.models.audio_feature_svm import AudioFeatureSVM
 from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
+from project_name.models.spectrogram_cnn import MultiheadEmotionCNN
 from project_name.data.data_preprocessing import AudioPreprocessor
 from project_name.features.audio_feature_extractor import AudioFeatureExtractor
 from project_name.models.training_procedure import EMOTION_LABELS, INTENSITY_LABELS
 
 from typing import Annotated, Optional, Union
+import torch
 import os
 import joblib
 
@@ -129,7 +131,7 @@ async def main():
     try:
         model_options = os.listdir(f"project_name{os.sep}saved_models")
         model_options = [
-            f.split(".")[0] for f in model_options if f.endswith(".joblib")
+            f.split(".")[0] for f in model_options
         ]
     except FileNotFoundError:
         model_options = []
@@ -279,8 +281,12 @@ async def select_model(model: Optional[str] = Form(None)):
             status_code=400, detail="No model selected. Please select a model."
         )
     audio_files = os.listdir("uploadedfiles")
+    if model != "spectrogram_cnn":
+        end = ".joblib"
+    else:
+        end = ".pth"
     if os.path.exists(
-        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+        f"project_name{os.sep}saved_models{os.sep}{model}{end}"
     ):
         # Here you can implement logic to set the selected model
         content = f"""
@@ -334,8 +340,12 @@ async def feature_selection(
             status_code=400,
             detail="No audio files selected for feature selection.",
         )
+    if model != "spectrogram_cnn":
+        end = ".joblib"
+    else:
+        end = ".pth"
     if not os.path.exists(
-        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+        f"project_name{os.sep}saved_models{os.sep}{model}{end}"
     ):
         raise HTTPException(
             status_code=404,
@@ -394,8 +404,12 @@ async def predict(
     if isinstance(audio_files, str):
         audio_files = [audio_files]
 
+    if model != "spectrogram_cnn":
+        end = ".joblib"
+    else:
+        end = ".pth"
     if not os.path.exists(
-        f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+        f"project_name{os.sep}saved_models{os.sep}{model}{end}"
     ):
         raise HTTPException(
             status_code=404,
@@ -409,32 +423,37 @@ async def predict(
             )
 
     match model:
-        case "intensity_svm" | "spectrogram_intensity_svm":
+        case "intensity_svm" | "emotion_svm":
             selected_model = AudioFeatureSVM.load(
                 f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
             )
-        case "emotion_svm" | "spectrogram_emotion_svm":
+        case "emotion_svm_ovr":
             selected_model = OneVsRestAudioFeatureSVM.load(
                 f"project_name{os.sep}saved_models{os.sep}{model}.joblib"
+            )
+        case "spectrogram_cnn":
+            selected_model = MultiheadEmotionCNN.load(
+                f"project_name{os.sep}saved_models{os.sep}{model}.pth"
             )
         case _:
             raise HTTPException(
                 status_code=404, detail=f"Model {model} is not supported."
             )
 
-    match model:
-        case "intensity_svm" | "emotion_svm":
-            pre_processor = AudioPreprocessor(data_augmenter=None)
-            feature_extractor = AudioFeatureExtractor(
-                use_deltas=True, n_mfcc=20
+    if model != "spectrogram_cnn":
+        pca = joblib.load(
+                f"project_name{os.sep}data{os.sep}pca_{model}.joblib"
             )
-        case "spectrogram_intensity_svm" | "spectrogram_emotion_svm":
+    match model:
+        case "spectrogram_cnn":
             pre_processor = AudioPreprocessor(
                 spectrogram_augmenter=None,
                 use_spectrograms=True,
             )
-            pca = joblib.load(
-                f"project_name{os.sep}data{os.sep}spectrogram_pca.joblib"
+        case _:
+            pre_processor = AudioPreprocessor(
+                spectrogram_augmenter=None,
+                use_spectrograms=True,
             )
 
     all_paths = []
@@ -447,44 +466,48 @@ async def predict(
                 detail=f"Audio file {audio_file} not found in uploaded files.",
             )
         all_paths.extend([os.path.join(path_to_audios, audio_file)])
-    print(f"Processing audio files: {all_paths}")
     processed_audios, _, _ = pre_processor.process_all(all_paths)
     if len(processed_audios) == 0:
         raise HTTPException(
             status_code=400,
             detail="No valid audio files found for prediction.",
         )
-    print(f"Processed audios: {len(processed_audios)} files")
     # Extract features before prediction
-    if model.split("_")[0] == "spectrogram":
+    if model.split("_")[1] == "cnn":
+        features = torch.tensor(
+            processed_audios, dtype=torch.float32
+        )
+    else:
         flat_processed_audios = processed_audios.reshape(
             processed_audios.shape[0], -1
         )
         features = pca.transform(flat_processed_audios)
-    else:
-        features = feature_extractor.extract_features_all(processed_audios)
 
-    print(
-        f"Extracted features shape: {len(features)} samples, {features.shape[1]} features"
-    )
+    if model == "spectrogram_cnn":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        features = features.to(device)
+        selected_model = selected_model.to(device)
 
     predictions = selected_model.predict(features)
-
     if len(predictions) == 0:
         raise HTTPException(
             status_code=400,
             detail="No predictions could be made. Check the audio files and model.",
         )
     match model:
-        case "intensity_svm" | "spectrogram_intensity_svm":
-            predictions = [INTENSITY_LABELS[pred - 1] for pred in predictions]
-        case "emotion_svm" | "spectrogram_emotion_svm":
+        case "intensity_svm":
+            predictions = [INTENSITY_LABELS[pred] for pred in predictions]
+        case "emotion_svm" | "emotion_svm_ovr":
             predictions = [EMOTION_LABELS[pred] for pred in predictions]
+        case "spectrogram_cnn":
+            emotion_tensor, intensity_tensor = predictions
+            emotions = [EMOTION_LABELS[int(e)] for e in emotion_tensor]
+            intensities = [INTENSITY_LABELS[int(i)] for i in intensity_tensor]
+            predictions = [f"{emotion} ({intensity})" for emotion, intensity in zip(emotions, intensities)]
         case _:
             raise HTTPException(
                 status_code=404, detail=f"Model {model} is not supported."
             )
-
     # Here you would implement the prediction logic
     content = f"""
     <body>
@@ -497,9 +520,8 @@ async def predict(
         <strong>{model}</strong> has been successfully completed.</p>
         <ul>
             <li>Model: {model}</li>
-            <li>Audio Files: {', '.join(audio_files)}</li>
-            <li>Predictions: {', '.join(
-                str(pred) for pred in predictions
+            <li>file: Predictions: {', '.join(
+                f'<br> {audio_file}: {prediction}' for audio_file, prediction in zip(audio_files, predictions)
             )}</li>
         </ul>
     </div>
