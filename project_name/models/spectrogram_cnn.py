@@ -125,6 +125,7 @@ class MultiheadEmotionCNN(nn.Module):
                 "Model has not yet been trained, call fit() first."
             )
         self.eval()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         x = x.to(self.device)
         with torch.no_grad():
             emotion_logits, intensity_logits = self(x)
