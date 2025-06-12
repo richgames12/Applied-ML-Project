@@ -466,32 +466,22 @@ async def predict(
                 detail=f"Audio file {audio_file} not found in uploaded files.",
             )
         all_paths.extend([os.path.join(path_to_audios, audio_file)])
-    print(f"Processing audio files: {all_paths}")
     processed_audios, _, _ = pre_processor.process_all(all_paths)
-    print(f"Processed audios: {processed_audios}")
     if len(processed_audios) == 0:
         raise HTTPException(
             status_code=400,
             detail="No valid audio files found for prediction.",
         )
-    print(f"Processed audios: {len(processed_audios)} files")
     # Extract features before prediction
     if model.split("_")[1] == "cnn":
         features = torch.tensor(
             processed_audios, dtype=torch.float32
         )
-        print(f"Processed audios shape: {processed_audios.shape}")
-        print(f"Features shape: {features.shape}")
-        print(f"features: {features}")
     else:
         flat_processed_audios = processed_audios.reshape(
             processed_audios.shape[0], -1
         )
         features = pca.transform(flat_processed_audios)
-
-    print(
-        f"Extracted features shape: {len(features)} samples, {features.shape[1]} features"
-    )
 
     if model == "spectrogram_cnn":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -499,8 +489,6 @@ async def predict(
         selected_model = selected_model.to(device)
 
     predictions = selected_model.predict(features)
-    print(f"Predictions made: {len(predictions)} samples")
-    print(f"Predictions: {predictions}")
     if len(predictions) == 0:
         raise HTTPException(
             status_code=400,
