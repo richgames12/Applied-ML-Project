@@ -5,7 +5,6 @@ librosa
 numpy==1.26.4
 scikit-learn
 audiomentations
-torch
 fastapi[standard]
 seaborn
 tensorboard

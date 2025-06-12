@@ -8,6 +8,19 @@
 ```bash
     $python -m pip install -r requirements.txt
 ```
+
+- Make sure to install the appropriate version of PyTorch for your system.
+
+  - **For CUDA 12.1 (NVIDIA GPU):**
+    ```bash
+    $python pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    ```
+
+  - **For CPU-only (no GPU):**
+    ```bash
+    $python pip install torch torchvision torchaudio
+    ```
+
 - Third download the dataset
 ```bash
     $python download_dataset.py
