@@ -472,6 +472,7 @@ async def predict(
         all_paths.extend([os.path.join(path_to_audios, audio_file)])
     print(f"Processing audio files: {all_paths}")
     processed_audios, _, _ = pre_processor.process_all(all_paths)
+    print(f"Processed audios: {processed_audios}")
     if len(processed_audios) == 0:
         raise HTTPException(
             status_code=400,
@@ -479,7 +480,7 @@ async def predict(
         )
     print(f"Processed audios: {len(processed_audios)} files")
     # Extract features before prediction
-    if model.split("_")[2] == "ovr":
+    if len(model.split("_")) > 2 and model.split("_")[2] == "ovr":
         flat_processed_audios = processed_audios.reshape(
             processed_audios.shape[0], -1
         )
@@ -488,6 +489,9 @@ async def predict(
         features = torch.tensor(
             processed_audios, dtype=torch.float32
         )
+        print(f"Processed audios shape: {processed_audios.shape}")
+        print(f"Features shape: {features.shape}")
+        print(f"features: {features}")
     else:
         features = feature_extractor.extract_features_all(processed_audios)
 
@@ -495,8 +499,13 @@ async def predict(
         f"Extracted features shape: {len(features)} samples, {features.shape[1]} features"
     )
 
-    predictions = selected_model.predict(features)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    features = features.to(device)
+    selected_model = selected_model.to(device)
 
+    predictions = selected_model.predict(features)
+    print(f"Predictions made: {len(predictions)} samples")
+    print(f"Predictions: {predictions}")
     if len(predictions) == 0:
         raise HTTPException(
             status_code=400,
@@ -508,7 +517,10 @@ async def predict(
         case "emotion_svm" | "emotion_svm_ovr":
             predictions = [EMOTION_LABELS[pred] for pred in predictions]
         case "spectrogram_cnn":
-            
+            emotion_tensor, intensity_tensor = predictions
+            emotions = [EMOTION_LABELS[int(e)] for e in emotion_tensor]
+            intensities = [INTENSITY_LABELS[int(i)] for i in intensity_tensor]
+            predictions = [f"{emotion} ({intensity})" for emotion, intensity in zip(emotions, intensities)]
         case _:
             raise HTTPException(
                 status_code=404, detail=f"Model {model} is not supported."
