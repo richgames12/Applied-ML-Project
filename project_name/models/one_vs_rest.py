@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import os
 
+
 class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
     """
     A wrapper for OneVsRestClassifier to save and load SVM model.
@@ -14,17 +15,15 @@ class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
         self.type = "SVM"
         self._n_features = None
 
-    def fit(self, features: np.ndarray, labels: np.ndarray) -> "OneVsRestAudioFeatureSVM":
-        """Fit the model to the training data.
+    def fit(self, features: np.ndarray, labels: np.ndarray) -> None:
+        """
+        Fit the model to the training data.
 
         Args:
             features (np.ndarray): The features of the audio should be of
                 shape (n_samples, n_features).
             labels (np.ndarray): The labels corresponding to the features
                 should be of shape (n_samples).
-
-        Returns:
-            OneVsRestAudioFeatureSVM: The fitted model.
         """
         if features.ndim != 2:
             raise ValueError(
@@ -39,7 +38,8 @@ class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
         self._n_features = features.shape[1]
 
     def predict(self, features: np.ndarray) -> np.ndarray:
-        """Predict labels for the given features.
+        """
+        Predict labels for the given features.
 
         Args:
             features (np.ndarray): The features of the audio should be of
@@ -61,7 +61,8 @@ class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
         return super().predict(features)
 
     def save(self, model_name: str = "emotion_svm") -> None:
-        """Save the model to a file.
+        """
+        Save the model to a file.
 
         Args:
             model_name (str): The name of the file to save the model to.
@@ -81,7 +82,8 @@ class OneVsRestAudioFeatureSVM(OneVsRestClassifier):
 
     @classmethod
     def load(cls, file_path: str) -> "OneVsRestAudioFeatureSVM":
-        """Load the model from a file.
+        """
+        Load the model from a file.
 
         Args:
             file_path (str): The full filepath to load the model from.
