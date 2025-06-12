@@ -245,7 +245,7 @@ class MultiheadEmotionCNN(nn.Module):
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Model file {file_path} does not exist.")
 
-        model = torch.load(file_path, map_location=torch.device("cpu"))
+        model = torch.load(file_path, map_location=torch.device("cpu"), weights_only=False)
 
         if not isinstance(model, MultiheadEmotionCNN):
             raise TypeError(

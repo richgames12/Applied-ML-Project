@@ -216,7 +216,7 @@ class AudioFeatureSVM:
         )
         return self
 
-    def save(self, model_name: str = "audio_svm.joblib") -> None:
+    def save(self, model_name: str = "audio_svm") -> None:
         """
         Save a trained AudioFeatureSVM model.
 
@@ -234,7 +234,7 @@ class AudioFeatureSVM:
             # Only create the folder if it does not yet exist
             os.makedirs(folder)
 
-        filepath = os.path.join(folder, model_name)
+        filepath = os.path.join(folder, f"{model_name}.joblib")
 
         # Save the whole class instance in the folder
         joblib.dump(self, filepath)
