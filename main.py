@@ -21,7 +21,6 @@ if __name__ == "__main__":
     # Toggle evaluation
     evaluate_mfcc = True
     evaluate_spec = True
-
     # ____________________________________________
     #                 Data Loading (MFCC)
     # ____________________________________________
@@ -80,13 +79,24 @@ if __name__ == "__main__":
         {"kernel": "rbf", "regularization_parameter": 0.5, "gamma": 0.01, "max_iter": 10000},
     ]
 
+
+    cnn_param_template = {
+            "dropout_rate": ["float_range", [0,1]],
+            "learning_rate": ["float_range", [0.0001,0.01]],
+            "batch_size": ["int_power_range", [2,1,5]],
+            "n_epoch": ["int_range", [1,10]],
+        }
     # ____________________________________________
     #    CNN training (emotion and intensity)
     # ____________________________________________
 
     multi_task_cnn = MultiheadEmotionCNN()
     eval_obj_cnn = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, multi_task_cnn)
-    eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
+    #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
+    eval_obj_cnn.evolutionary_hyper_search(cnn_param_template)
+    
+    #cnn_param_grid = eval_obj_cnn.generate_random_points(cnn_param_template, 20)
+    #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
 
     # ____________________________________________
     #           SVM training (emotion)

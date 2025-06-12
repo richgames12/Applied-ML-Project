@@ -11,6 +11,9 @@ from sklearn.metrics import f1_score
 from project_name.evaluation.model_evaluation import ModelEvaluator
 from datetime import datetime
 from tqdm import tqdm
+import random as rnd
+import heapq
+import math
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -556,7 +559,7 @@ class TrainAndEval():
         }
         return model_params, train_params
 
-    def hyperparameter_tune(self, param_grid: list[dict], cross_val="k_fold", model_name: str | None = "best_model") -> None:
+    def hyperparameter_tune(self, param_grid: list[dict], cross_val="k_fold", model_name: str | None = "best_model") -> list[tuple]:
         """
         Perform hyperparameter tuning using the provided parameter grid.
         This method iterates over the parameter grid and evaluates the model.
@@ -572,9 +575,11 @@ class TrainAndEval():
                 "k_fold" or "holdout" Defaults to "k_fold".
             model_name (str, optional): Name of the model to save after tuning. If None,
                 the model will not be saved. Defaults to "best_model".
+        Returns: 
+            List with val_scores for each evaluated parameter grid point
         """
-        for params in tqdm(param_grid, desc="Hyperparameter tuning"):
-
+        val_scores = []
+        for i, params in tqdm(enumerate(param_grid), desc="Hyperparameter tuning"):
             # Split parameters into model and training parameters
             model_params, train_params = self._filter_params(params)
             print(model_params, train_params)
@@ -590,6 +595,7 @@ class TrainAndEval():
                 self.best_score = val_score
                 self.best_params = params
 
+            val_scores.append((i, val_score))
         print(f"Best validation score: {self.best_score} with parameters: {self.best_params}")
 
         # Retrain best model on all training data
@@ -599,6 +605,155 @@ class TrainAndEval():
             # Save the best model
             print(f"Saving best model to {model_name}.")
             self.model.save("best_model")
+
+        return val_scores
+
+    def evolutionary_hyper_search(self, param_template: dict[list[list]], cross_val="k_fold", n: int = 5, pop_size: int = 30, repro_rate: int = 0.5):
+        population = self.generate_random_points(param_template, pop_size)
+
+        for _ in range(n):
+            fitness_scores = self.hyperparameter_tune(population)
+            n_best = int(repro_rate * pop_size)
+            fittest_dictionaries_idx = heapq.nlargest(n_best, fitness_scores, key=lambda x: x[1])
+            fittest_dictionaries = [population[i[0]] for i in fittest_dictionaries_idx]
+            population = self._reproduce_population(fittest_dictionaries, param_template, pop_size)
+        
+    def _reproduce_population(self, breeding_pop: list, param_template: dict[list[list]], goal_size: int) -> list[dict]:
+        """Perform the crossover and mutation procedures on the selected breeding population. 
+        Args:
+            goal_size: int, The desired population size to be reached after reproduction through crossover
+            
+            """
+        rnd.shuffle(breeding_pop)
+        breeding_pop_size = len(breeding_pop)
+        new_population = []
+        for _ in range(int(goal_size / 2)):
+            parents = rnd.sample(breeding_pop, 2)
+            children = self._crossover(parents[0], parents[1])
+            new_population.extend(children)
+            
+        if goal_size % 2 != 0:
+            parents = rnd.sample(breeding_pop, 2)
+            children = self._crossover(parents[0], parents[1])
+            new_population.append(children[0])      
+        
+        mutated_population = []
+        print(new_population[0])
+        for individual in new_population:
+            self._mutate(param_template, individual)
+        print(new_population[0])
+        return new_population
+    
+    def _crossover(self, parent_one:dict, parent_two:dict) -> list[dict]:
+        """Perform crossover operation on the parameters (genomes)
+        of two parameter containing dicts (parents)
+        Args:
+            parent_one:dict: it is important that both parent dicts have the same keys
+            parent_two:dict
+
+        Returns:
+            tuple[dict], of two dicts are identical to the parent dicts 
+            except that they have the values at one location swapped
+            """
+        child_one = parent_one.copy()
+        child_two = parent_two.copy()
+        keys = list(child_one.keys())
+        param_to_swap = rnd.choice(keys)
+        temp_value_store = child_one[param_to_swap]
+        child_one[param_to_swap] = child_two[param_to_swap]
+        child_two[param_to_swap] = temp_value_store
+
+        return [child_one, child_two]
+
+    def _mutate(self, param_template: dict[list[list]],  parameters:dict, mutation_factor:int = 0.2) -> None:
+        """
+        Apply mutation to one of the parameters of a dict.
+        Args:
+            param_template: dict[list[list]]: parameter template 
+            parameters: dict: parameters to mutate
+            mutation_factor: int: proportion of value mutated
+        """
+        keys = list(parameters.keys())
+        param_to_mutate = rnd.choice(keys)
+
+        param_constraint = param_template[param_to_mutate][0]
+        constraint_spec = param_template[param_to_mutate][1]
+
+        if param_constraint == "float_range":
+            value = parameters[param_to_mutate]
+            range_begin = constraint_spec[0]
+            range_end = constraint_spec[1]
+            delta = (range_end - range_begin) * mutation_factor
+            sign = rnd.choice([1, -1])
+            value += sign * delta
+            if value > range_end:
+                value = range_end
+            if value < range_begin:
+                value = range_begin
+            parameters[param_to_mutate] = value   
+
+        elif param_constraint == "int_range":
+            value = parameters[param_to_mutate]
+            range_begin = constraint_spec[0]
+            range_end = constraint_spec[1]
+            delta = math.ceil((range_end - range_begin) * mutation_factor)
+            sign = rnd.choice([1, -1])
+            value += sign * delta
+            if value > range_end:
+                value = range_end
+            if value < range_begin:
+                value = range_begin
+            parameters[param_to_mutate] = int(value)    
+
+        elif param_constraint == "int_power_range": 
+            base = constraint_spec[0]
+            value = math.log(parameters[param_to_mutate]) / math.log(base)
+            range_begin = constraint_spec[1]
+            range_end = constraint_spec[2]
+            delta = math.ceil((range_end - range_begin) * mutation_factor)
+            sign = rnd.choice([1, -1])
+            value += sign * delta
+            if value > range_end:
+                value = range_end
+            if value < range_begin:
+                value = range_begin
+            parameters[param_to_mutate] = int(base ** value)
+
+        return None 
+
+    def generate_random_points(self, param_template: dict[list[list]], n: int = 50) -> list[dict]:
+        """Generate random points in the parameter grid 
+        Args:
+            param_template: dict[list[list]], contains a dictionary with constraints for each parameter
+        n: int, the number of random points to generate
+        Returns:
+            grid_subset: list[dict] with random points on prameter grid"""
+        grid_subset = []
+        for _ in range(n):
+            grid_point = {}
+            for parameter in param_template.items():
+                param_constraint = parameter[1][0]
+                constraint_spec = parameter[1][1]
+                param_name = parameter[0]
+                if param_constraint == "float_range":
+                    range_begin = constraint_spec[0]
+                    range_end = constraint_spec[1]
+                    param_value = rnd.uniform(range_begin, range_end)
+                    grid_point[param_name] = param_value
+                elif param_constraint == "int_range":
+                    range_begin = constraint_spec[0]
+                    range_end = constraint_spec[1]
+                    param_value = rnd.randint(range_begin, range_end)
+                    grid_point[param_name] = param_value                   
+                elif param_constraint == "int_power_range": 
+                    base = constraint_spec[0]
+                    range_begin = constraint_spec[1]
+                    range_end = constraint_spec[2]
+                    power = rnd.randint(range_begin, range_end)
+                    param_value = base ** power
+                    grid_point[param_name] = param_value   
+            grid_subset.append(grid_point)
+        return grid_subset
 
     def evaluate_on_testset(
         self,
