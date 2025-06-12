@@ -11,6 +11,8 @@ from sklearn.metrics import f1_score
 from project_name.evaluation.model_evaluation import ModelEvaluator
 from datetime import datetime
 from tqdm import tqdm
+import joblib
+import os
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -469,6 +471,7 @@ class TrainAndEval():
         spec_train_flat = train_features.reshape(train_features.shape[0], -1)
         self.pca = PCA(n_components=200, random_state=self.seed)
         spec_train_reduced = self.pca.fit_transform(spec_train_flat)
+        joblib.dump(self.pca, f"project_name{os.sep}data{os.sep}pca.joblib")  # Save PCA model for later use
 
         # Train SVM for the current task
         if isinstance(self.model, OneVsRestAudioFeatureSVM):
@@ -598,7 +601,7 @@ class TrainAndEval():
         if model_name is not None:
             # Save the best model
             print(f"Saving best model to {model_name}.")
-            self.model.save("best_model")
+            self.model.save(model_name)
 
     def evaluate_on_testset(
         self,
