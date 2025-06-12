@@ -440,21 +440,17 @@ async def predict(
                 status_code=404, detail=f"Model {model} is not supported."
             )
 
-    match model:
-        case "intensity_svm" | "emotion_svm":
-            pre_processor = AudioPreprocessor(data_augmenter=None)
-            feature_extractor = AudioFeatureExtractor(
-                use_deltas=True, n_mfcc=20
+    if model != "spectrogram_cnn":
+        pca = joblib.load(
+                f"project_name{os.sep}data{os.sep}pca_{model}.joblib"
             )
-        case "emotion_svm_ovr":
+    match model:
+        case "spectrogram_cnn":
             pre_processor = AudioPreprocessor(
                 spectrogram_augmenter=None,
                 use_spectrograms=True,
             )
-            pca = joblib.load(
-                f"project_name{os.sep}data{os.sep}spectrogram_pca.joblib"
-            )
-        case "spectrogram_cnn":
+        case _:
             pre_processor = AudioPreprocessor(
                 spectrogram_augmenter=None,
                 use_spectrograms=True,
@@ -480,12 +476,7 @@ async def predict(
         )
     print(f"Processed audios: {len(processed_audios)} files")
     # Extract features before prediction
-    if len(model.split("_")) > 2 and model.split("_")[2] == "ovr":
-        flat_processed_audios = processed_audios.reshape(
-            processed_audios.shape[0], -1
-        )
-        features = pca.transform(flat_processed_audios)
-    elif model.split("_")[1] == "cnn":
+    if model.split("_")[1] == "cnn":
         features = torch.tensor(
             processed_audios, dtype=torch.float32
         )
@@ -493,15 +484,19 @@ async def predict(
         print(f"Features shape: {features.shape}")
         print(f"features: {features}")
     else:
-        features = feature_extractor.extract_features_all(processed_audios)
+        flat_processed_audios = processed_audios.reshape(
+            processed_audios.shape[0], -1
+        )
+        features = pca.transform(flat_processed_audios)
 
     print(
         f"Extracted features shape: {len(features)} samples, {features.shape[1]} features"
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    features = features.to(device)
-    selected_model = selected_model.to(device)
+    if model == "spectrogram_cnn":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        features = features.to(device)
+        selected_model = selected_model.to(device)
 
     predictions = selected_model.predict(features)
     print(f"Predictions made: {len(predictions)} samples")
@@ -513,7 +508,7 @@ async def predict(
         )
     match model:
         case "intensity_svm":
-            predictions = [INTENSITY_LABELS[pred - 1] for pred in predictions]
+            predictions = [INTENSITY_LABELS[pred] for pred in predictions]
         case "emotion_svm" | "emotion_svm_ovr":
             predictions = [EMOTION_LABELS[pred] for pred in predictions]
         case "spectrogram_cnn":
@@ -525,7 +520,6 @@ async def predict(
             raise HTTPException(
                 status_code=404, detail=f"Model {model} is not supported."
             )
-
     # Here you would implement the prediction logic
     content = f"""
     <body>
@@ -538,9 +532,8 @@ async def predict(
         <strong>{model}</strong> has been successfully completed.</p>
         <ul>
             <li>Model: {model}</li>
-            <li>Audio Files: {', '.join(audio_files)}</li>
-            <li>Predictions: {', '.join(
-                str(pred) for pred in predictions
+            <li>file: Predictions: {', '.join(
+                f'<br> {audio_file}: {prediction}' for audio_file, prediction in zip(audio_files, predictions)
             )}</li>
         </ul>
     </div>
