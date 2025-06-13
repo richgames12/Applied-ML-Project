@@ -147,6 +147,7 @@ class TrainAndEval():
         learning_rate: float = 1e-3,
         batch_size: int = 32,
         return_val_score: bool = False,
+        write_val_loss: bool = True,
         model_params: dict | None = None
     ) -> float | None:
         """
@@ -208,7 +209,11 @@ class TrainAndEval():
                     train_labels = self.aug_labels[1][train_aug_idx]
                     val_labels = self.aug_labels[1][val_orig_idx]
                 else:
-                    raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
+                    raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")  
+            if(write_val_loss is True):
+                local_writer = self.writer
+            else:
+                local_writer = None
 
             if self.model.type == "CNN":
                 val_score = self._train_CNN_split(
@@ -221,7 +226,7 @@ class TrainAndEval():
                     n_epoch=n_epoch,
                     learning_rate=learning_rate,
                     batch_size=batch_size,
-                    writer=self.writer,
+                    writer=local_writer,
                     return_val_score=return_val_score,
                     model_params=model_params
                 )
@@ -254,6 +259,7 @@ class TrainAndEval():
         learning_rate: float = 1e-3,
         batch_size: int = 32,
         return_val_score: bool = False,
+        write_val_loss: bool = True,
         model_params: dict | None = None
     ) -> float | None:
         """
@@ -279,7 +285,7 @@ class TrainAndEval():
         # Shuffle original indices using np.random
         orig_indices = np.arange(self.n_samples)
         np.random.shuffle(orig_indices)
-
+        
         # Compute augmented indices for shuffled originals
         aug_indices = np.concatenate([
             np.arange(idx * (n_aug + 1), (idx + 1) * (n_aug + 1)) for idx in orig_indices
@@ -289,7 +295,6 @@ class TrainAndEval():
         val_length = int(self.n_samples * val_proportion)
         val_begin = self.n_samples - val_length
         val_end = self.n_samples
-
         # Reorder features and labels according to shuffled indices
         shuffled_features = self.aug_features[aug_indices]
         val_features, train_features = self._data_split(shuffled_features, val_begin, val_end)
@@ -310,7 +315,11 @@ class TrainAndEval():
             else:
                 raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
             val_labels, train_labels = self._data_split(shuffled_labels, val_begin, val_end)
-
+        if(write_val_loss is True):
+            local_writer = self.writer
+        else:
+            local_writer = None
+            
         if self.model.type == "CNN":
             val_score = self._train_CNN_split(
                 train_features=train_features,
@@ -322,7 +331,7 @@ class TrainAndEval():
                 n_epoch=n_epoch,
                 learning_rate=learning_rate,
                 batch_size=batch_size,
-                writer=self.writer,
+                writer=local_writer,
                 return_val_score=return_val_score,
                 model_params=model_params
             )
@@ -432,8 +441,8 @@ class TrainAndEval():
         # Call the model's training method and return validation score if required
         # Pass val_loader to the model's fit method (it should be able to handle None)
         val_score = self.model.fit(
-            val_dataloader=val_loader,
             train_dataloader=train_loader,
+            val_dataloader=val_loader,
             writer=writer,
             epochs=n_epoch,
             learning_rate=learning_rate,
@@ -570,7 +579,7 @@ class TrainAndEval():
         }
         return model_params, train_params
 
-    def hyperparameter_tune(self, param_grid: list[dict], cross_val="k_fold", model_name: str | None = "best_model") -> list[tuple]:
+    def hyperparameter_tune(self, param_grid: list[dict], cross_val="holdout", model_name: str | None = "best_model") -> list[tuple]:
         """
         Perform hyperparameter tuning using the provided parameter grid.
         This method iterates over the parameter grid and evaluates the model.
@@ -597,70 +606,100 @@ class TrainAndEval():
             # Model parameters are used to initialize the model while training parameters
             # are used to fit the model
             if cross_val == "k_fold":
-                val_score = self._k_fold(return_val_score=True, **train_params, model_params=model_params)
+                val_score = self._k_fold(return_val_score=True, write_val_loss=False **train_params, model_params=model_params)
             elif cross_val == "holdout":
-                val_score = self._holdout(return_val_score=True, **train_params, model_params=model_params)
+                val_score = self._holdout(return_val_score=True, write_val_loss=False,  **train_params, model_params=model_params)
             else:
                 raise ValueError("Unknown cross-validation type.")
             if val_score > self.best_score:
                 self.best_score = val_score
                 self.best_params = params
-                # Retrain best model on all training data
-                print("Retraining best model on all training data...")
-                self.train_no_split()
-                if model_name is not None:
-                    # Save the best model
-                    print(f"Saving best model to {model_name}.")
-                    self.model.save(model_name)
+            val_scores.append(val_score)
 
-            val_scores.append((i, val_score))
         print(f"Best validation score: {self.best_score} with parameters: {self.best_params}")
-
+        # Retrain best model on all training data
+        print("Retraining best model on all training data...")
+        self.train_no_split()
+        if model_name is not None:
+            # Save the best model
+            print(f"Saving best model to {model_name}.")
+            self.model.save(model_name)
 
         return val_scores
 
     def evolutionary_hyper_search(
         self,
         param_template: dict[list[list]],
-        cross_val="k_fold",
-        n: int = 5,
-        pop_size: int = 30,
-        repro_rate: int = 0.5,
+        cross_val:str ="holdout",
+        n: int = 10,
+        pop_size: int = 15,
+        repro_rate: float = 0.4,
         model_name: str | None = "best_model"
     ):
+        """
+        Perform hyperparameter search using evolutionary optimization. 
+        This method will generate an initial population of size pop_size 
+        of random dictionaries and test them using the hyperparameter tune 
+        method, it will then take the best performing repro_rate (reproduction)
+        rate portion and reproduce those dictionaries through the _reproduce_population
+        with crossover and mutation to produce a new set of dictionaries with higher 
+        fitness scores. 
+        Args:
+            param_template: dict[list[list]], template with constraints for each parameter 
+            of the dicts 
+            cross_val:str, type of crossvalidation to use for evaluation. 
+            n: int, number of generations to run the evolution process for
+            pop_size: int, population size
+            repro_rate: float, proportion of fittest parameter dicts that get 
+            to reproduce
+            model_name: str, name to save the best model with
+        """
         population = self.generate_random_points(param_template, pop_size)
 
         for _ in range(n):
             fitness_scores = self.hyperparameter_tune(population, cross_val=cross_val, model_name=model_name)
-            n_best = int(repro_rate * pop_size)
-            fittest_dictionaries_idx = heapq.nlargest(n_best, fitness_scores, key=lambda x: x[1])
-            fittest_dictionaries = [population[i[0]] for i in fittest_dictionaries_idx]
-            population = self._reproduce_population(fittest_dictionaries, param_template, pop_size)
+            population = self._reproduce_population(population, fitness_scores, param_template, pop_size, repro_rate)
         
-    def _reproduce_population(self, breeding_pop: list, param_template: dict[list[list]], goal_size: int) -> list[dict]:
+    def _reproduce_population(self, population: list, fitness_scores: list, param_template: dict[list[list]]
+                              , goal_size: int, repro_rate: float, elitsm: bool = True) -> list[dict]:
         """Perform the crossover and mutation procedures on the selected breeding population. 
         Args:
             goal_size: int, The desired population size to be reached after reproduction through crossover
-            
+            population 
+        Returns:
+            list[dict]: List with newly generated population
             """
-        rnd.shuffle(breeding_pop)
-        breeding_pop_size = len(breeding_pop)
+        n_best = int(repro_rate * goal_size)
+        fittest_dictionaries = self.select_fitness_prob(population, fitness_scores, n_best)
         new_population = []
+        mutated_population = []
+
+        if elitsm is True: #Perform elitism (with mutation if pop size is above 10)
+            mutated_population.append(fittest_dictionaries[0]) #skip mutating fittest individual
+            if(goal_size >= 20):
+                for _ in range(int(goal_size*0.1) - 1):
+                    new_population.append(fittest_dictionaries[0].copy())
+                goal_size = goal_size - int(goal_size*0.1)
+            else:
+                goal_size = goal_size - 1
+
+        rnd.shuffle(population)
+        
         for _ in range(int(goal_size / 2)):
-            parents = rnd.sample(breeding_pop, 2)
+            parents = rnd.sample(population, 2)
             children = self._crossover(parents[0], parents[1])
             new_population.extend(children)
             
         if goal_size % 2 != 0:
-            parents = rnd.sample(breeding_pop, 2)
+            parents = rnd.sample(population, 2)
             children = self._crossover(parents[0], parents[1])
             new_population.append(children[0])      
         
-        mutated_population = []
-        print(new_population[0])
         for individual in new_population:
-            self._mutate(param_template, individual)
-        print(new_population[0])
+            mutated_population.append(self._mutate(param_template, individual))
+ 
+        
+
         return new_population
     
     def _crossover(self, parent_one:dict, parent_two:dict) -> list[dict]:
@@ -684,7 +723,7 @@ class TrainAndEval():
 
         return [child_one, child_two]
 
-    def _mutate(self, param_template: dict[list[list]],  parameters:dict, mutation_factor:int = 0.2) -> None:
+    def _mutate(self, param_template: dict[list[list]],  parameters:dict, mutation_factor:int = 0.4) -> dict[list[list]]:
         """
         Apply mutation to one of the parameters of a dict.
         Args:
@@ -692,36 +731,31 @@ class TrainAndEval():
             parameters: dict: parameters to mutate
             mutation_factor: int: proportion of value mutated
         """
+        parameters = parameters.copy()
         keys = list(parameters.keys())
         param_to_mutate = rnd.choice(keys)
 
         param_constraint = param_template[param_to_mutate][0]
         constraint_spec = param_template[param_to_mutate][1]
-
+        #Repeated code to allow for furthe adjustment per constrait type if needed
         if param_constraint == "float_range":
             value = parameters[param_to_mutate]
             range_begin = constraint_spec[0]
             range_end = constraint_spec[1]
-            delta = (range_end - range_begin) * mutation_factor
-            sign = rnd.choice([1, -1])
-            value += sign * delta
-            if value > range_end:
-                value = range_end
-            if value < range_begin:
-                value = range_begin
+            sigma = (range_end + range_begin) * 0.5 * mutation_factor
+            delta = rnd.uniform(-1*sigma, sigma) 
+            value += delta
+            value = max(range_begin, min(value, range_end))
             parameters[param_to_mutate] = value   
 
         elif param_constraint == "int_range":
             value = parameters[param_to_mutate]
             range_begin = constraint_spec[0]
             range_end = constraint_spec[1]
-            delta = math.ceil((range_end - range_begin) * mutation_factor)
-            sign = rnd.choice([1, -1])
-            value += sign * delta
-            if value > range_end:
-                value = range_end
-            if value < range_begin:
-                value = range_begin
+            sigma = (range_end + range_begin) * 0.5 * mutation_factor
+            delta = rnd.uniform(-1*sigma, sigma) 
+            value = int(value + delta)
+            value = max(range_begin, min(value, range_end))
             parameters[param_to_mutate] = int(value)    
 
         elif param_constraint == "int_power_range": 
@@ -729,24 +763,35 @@ class TrainAndEval():
             value = math.log(parameters[param_to_mutate]) / math.log(base)
             range_begin = constraint_spec[1]
             range_end = constraint_spec[2]
-            delta = math.ceil((range_end - range_begin) * mutation_factor)
-            sign = rnd.choice([1, -1])
-            value += sign * delta
-            if value > range_end:
-                value = range_end
-            if value < range_begin:
-                value = range_begin
+            sigma = (range_end + range_begin) * 0.5 * mutation_factor
+            delta = rnd.uniform(-1*sigma, sigma)  
+            value = int(value + delta)
+            value = max(range_begin, min(value, range_end))
             parameters[param_to_mutate] = int(base ** value)
 
-        return None 
+        elif param_constraint == "float_range_log": 
+            #Note that the range of this one reflects the actual value of the param 
+            #not the base like in power range
+            value = math.log(parameters[param_to_mutate])
+            range_begin = math.log(constraint_spec[0])
+            range_end = math.log(constraint_spec[1])
+            sigma = (range_end + range_begin) * 0.5 * mutation_factor
+            delta = rnd.uniform(0, sigma) 
+            value = math.exp(value + delta)
+            value = max(math.exp(range_begin), min(value, math.exp(range_end)))
+            parameters[param_to_mutate] = value
 
-    def generate_random_points(self, param_template: dict[list[list]], n: int = 50) -> list[dict]:
+        return parameters 
+
+    def generate_random_points(self, param_template: dict[list[list]], n: int = 50, sd_scale: float = 0.9) -> list[dict]:
         """Generate random points in the parameter grid 
         Args:
             param_template: dict[list[list]], contains a dictionary with constraints for each parameter
         n: int, the number of random points to generate
         Returns:
             grid_subset: list[dict] with random points on prameter grid"""
+        #Note that the largly repeated code is to allow for adjustments to be made to each constraint 
+        #type without the use of complex helper functions 
         grid_subset = []
         for _ in range(n):
             grid_point = {}
@@ -757,22 +802,60 @@ class TrainAndEval():
                 if param_constraint == "float_range":
                     range_begin = constraint_spec[0]
                     range_end = constraint_spec[1]
-                    param_value = rnd.uniform(range_begin, range_end)
+                    mean = (range_begin + range_end) / 2
+                    param_value = np.random.normal(mean, mean * sd_scale)
+                    param_value = max(range_begin, min(param_value, range_end))
                     grid_point[param_name] = param_value
+                    
                 elif param_constraint == "int_range":
                     range_begin = constraint_spec[0]
                     range_end = constraint_spec[1]
-                    param_value = rnd.randint(range_begin, range_end)
-                    grid_point[param_name] = param_value                   
+                    mean = (range_begin + range_end) / 2
+                    param_value = int(np.random.normal(mean, mean * sd_scale))
+                    param_value = max(range_begin, min(param_value, range_end))
+                    grid_point[param_name] = param_value     
+
                 elif param_constraint == "int_power_range": 
                     base = constraint_spec[0]
                     range_begin = constraint_spec[1]
                     range_end = constraint_spec[2]
-                    power = rnd.randint(range_begin, range_end)
+                    mean = (range_begin + range_end) / 2
+                    power = int(np.random.normal(mean, mean * sd_scale))
+                    power = max(range_begin, min(power, range_end))                    
                     param_value = base ** power
                     grid_point[param_name] = param_value   
+
+                elif param_constraint == "float_range_log": 
+                    #Note that the range of this one reflects the actual value of the param 
+                    #not the base like in power range
+                    range_begin = math.log(constraint_spec[0])
+                    range_end = math.log(constraint_spec[1])
+                    mean = (range_begin + range_end) / 2
+                    param_value = np.random.normal(mean, abs(mean * sd_scale))
+                    param_value = math.exp(param_value)
+                    param_value = max(math.exp(range_begin), min(param_value, math.exp(range_end)))
+                    grid_point[param_name] = param_value 
+
             grid_subset.append(grid_point)
         return grid_subset
+    
+
+    
+    def select_fitness_prob(self, population:list[dict], fitness_scores:list, n: int) -> list[dict]:
+        """
+        Probabalistically select n dicts from list based on acompanying fitness scores. 
+        Args:
+        population:list[dict], list of dicts to select from
+        fitness_scores:list, list of floats representing fitness scores
+        n: int, number of dicts to choose, must be er equal to population length
+        """
+        selected_subset = []
+        for _ in range(n):
+            chosen_dict = rnd.choices(population, weights=fitness_scores, k=1)[0]
+            selected_subset.append(chosen_dict)
+            del fitness_scores[population.index(chosen_dict)]
+            del population[population.index(chosen_dict)]
+        return selected_subset
 
     def evaluate_on_testset(
         self,

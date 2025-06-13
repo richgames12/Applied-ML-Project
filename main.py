@@ -11,10 +11,9 @@ import torch
 import numpy as np
 import random
 
-N_SPEC_AUGMENTATIONS = 3
+N_SPEC_AUGMENTATIONS = 0
 
 if __name__ == "__main__":
-    print(torch.cuda.is_available())
     seed = None
     # Some classes also use a seed to control sklearn random processes
     np.random.seed(seed)
@@ -62,6 +61,16 @@ if __name__ == "__main__":
     # This grid should be made automatically but this is a simple example
     # More paramaters can be added but then it should also be adapted in the
     # filter function of the TrainAndEval class and also be implemented in the CNN class
+    # The template has a dictionary where the keys are the names of parameters and the values 
+    # are lists with as the first element the name of a constraint and the second element another
+    # list that contains the constraint specifications
+
+    # "float_range" means that the optimizer must choose a float in that range 
+    # "float_range_log" means that the optimizer must choose a float in that range but
+    # the probabilities of extreme values are increased by the use of log representation
+    # "int_power" range has the base, and then the range of integer powers the base can be 
+    # raised to
+    # "int_range" means the optimizer must choose an integer in that range
     cnn_param_grid = [
         {
             "dropout_rate": 0.3,
@@ -83,10 +92,10 @@ if __name__ == "__main__":
 
 
     cnn_param_template = {
-            "dropout_rate": ["float_range", [0,1]],
-            "learning_rate": ["float_range", [0.0001,0.01]],
-            "batch_size": ["int_power_range", [2,1,5]],
-            "n_epoch": ["int_range", [1,10]],
+            "dropout_rate": ["float_range", [0.1,0.9]],
+            "learning_rate": ["float_range_log", [0.00001,0.1]],
+            "batch_size": ["int_power_range", [2,2,7]],
+            "n_epoch": ["int_range", [2,15]],
         }
     # ____________________________________________
     #    CNN training (emotion and intensity)
@@ -95,6 +104,7 @@ if __name__ == "__main__":
     multi_task_cnn = MultiheadEmotionCNN()
     eval_obj_cnn = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, multi_task_cnn)
     #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
+    #eval_obj_cnn.hyperparameter_tune(eval_obj_cnn.generate_random_points(cnn_param_template, 20), "holdout")
     eval_obj_cnn.evolutionary_hyper_search(cnn_param_template, model_name="spectrogram_cnn")
     
     #cnn_param_grid = eval_obj_cnn.generate_random_points(cnn_param_template, 20)

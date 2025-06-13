@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+from sklearn.metrics import f1_score
 import os
 
 
@@ -139,7 +140,7 @@ class MultiheadEmotionCNN(nn.Module):
         self,
         train_dataloader: DataLoader,
         val_dataloader: DataLoader | None = None,  # It can be None if no validation is needed
-        writer: None | SummaryWriter = None,
+        writer: SummaryWriter | None = None,
         epochs: int = 20,
         learning_rate: float = 1e-3,
         return_val_score: bool = False
@@ -183,32 +184,43 @@ class MultiheadEmotionCNN(nn.Module):
                 optimizer.step()
                 total_train_loss += loss_sum.item()
 
-            # Only run validation if val_dataloader is provided
-            if val_dataloader is not None:
-                with torch.no_grad():
-                    total_val_loss = 0
-                    for features, emotion_labels, intensity_labels in val_dataloader:
-                        features = features.to(self.device)
-                        emotion_labels = emotion_labels.to(self.device)
-                        intensity_labels = intensity_labels.to(self.device)
-                        emotion_logits, intensity_logits = self(features)
-                        loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
-                        total_val_loss += loss_sum.item()
-
-                if writer is not None:
-                    writer.add_scalars('Loss', {
-                        'train': (total_train_loss / len(train_dataloader)),
-                        'val': (total_val_loss / len(val_dataloader))
-                    }, epoch)
-            else:
-                if writer is not None:
+            #Only run validation if val_dataloader is provided 
+            #And only run validation if writer is also provided
+            if writer is not None:
+                if val_dataloader is not None:
+                    with torch.no_grad():
+                        total_val_loss = 0
+                        for features, emotion_labels, intensity_labels in val_dataloader:
+                            features = features.to(self.device)
+                            emotion_labels = emotion_labels.to(self.device)
+                            intensity_labels = intensity_labels.to(self.device)
+                            emotion_logits, intensity_logits = self(features)
+                            loss_sum = loss_func(emotion_logits, emotion_labels) + loss_func(intensity_logits, intensity_labels)
+                            total_val_loss += loss_sum.item()
+                            emotion_predictions = torch.argmax(emotion_logits, dim=1)
+                            intensity_predictions = torch.argmax(intensity_logits, dim=1)
+                        writer.add_scalars('Loss', {
+                            'train': (total_train_loss / len(train_dataloader)),
+                            'val': (total_val_loss / len(val_dataloader))
+                        }, epoch)
+                else:
                     writer.add_scalar('Loss/train', (total_train_loss / len(train_dataloader)), epoch)
 
-        # Only return validation loss if validation was performed
-        if val_dataloader is not None:
-            avg_val_loss = total_val_loss / len(val_dataloader)
-            if return_val_score:
-                return -avg_val_loss  # Negative loss for maximization in tuning
+        if(val_dataloader is not None and writer is None):
+            with torch.no_grad():
+                total_f1 = 0
+                for features, emotion_labels, intensity_labels in val_dataloader:
+                    features = features.to(self.device)
+                    emotion_labels = emotion_labels.to(self.device)
+                    intensity_labels = intensity_labels.to(self.device)
+                    emotion_logits, intensity_logits = self(features)
+                    emotion_predictions = torch.argmax(emotion_logits, dim=1)
+                    intensity_predictions = torch.argmax(intensity_logits, dim=1)
+                    f1_emotion = f1_score(emotion_predictions.cpu(), emotion_labels.cpu(), average='weighted')
+                    f1_intensity = f1_score(intensity_predictions.cpu(), intensity_labels.cpu(), average='weighted')
+                    total_f1 += min(f1_emotion,f1_intensity) #perhaps nice way to make the model perform well on both tasks
+                    #Only return validation f1 if validation was performed
+                return (total_f1 / (len(val_dataloader)))  # Negative loss for maximization in tuning
         return None
 
     def save(self, model_name: str = "emotion_cnn") -> None:
