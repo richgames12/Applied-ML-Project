@@ -6,6 +6,7 @@ from project_name.models.audio_feature_svm import AudioFeatureSVM
 from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
 from project_name.models.spectrogram_cnn import MultiheadEmotionCNN
 from project_name.models.training_procedure import TrainAndEval
+import torch
 
 import numpy as np
 import random
@@ -13,6 +14,7 @@ import random
 N_SPEC_AUGMENTATIONS = 3
 
 if __name__ == "__main__":
+    print(torch.cuda.is_available())
     seed = None
     # Some classes also use a seed to control sklearn random processes
     np.random.seed(seed)
@@ -25,8 +27,8 @@ if __name__ == "__main__":
     #                 Data Loading (MFCC)
     # ____________________________________________
     # Initialize the data file splitter
-    splitter = DataFileSplitter(dataset_path=DATASET_DIR, test_size=0.1, eval_size=0.1, seed=seed)
-    train_data, val_data, test_data = splitter.get_data_splits_copy()
+    splitter = DataFileSplitter(dataset_path=DATASET_DIR, test_size=0.1, seed=seed)
+    train_data, test_data = splitter.get_data_splits_copy()
 
     # ____________________________________________
     #         Spectrogram Preprocessing
@@ -97,6 +99,7 @@ if __name__ == "__main__":
     
     #cnn_param_grid = eval_obj_cnn.generate_random_points(cnn_param_template, 20)
     #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
+    #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout", model_name="spectrogram_cnn")
 
     # ____________________________________________
     #           SVM training (emotion)
@@ -106,13 +109,13 @@ if __name__ == "__main__":
     emotion_svm = AudioFeatureSVM()
     # Pass all labels for consistency, even if we only use emotion labels
     eval_obj_emotion_svm = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, emotion_svm, task="emotion")
-    eval_obj_emotion_svm.hyperparameter_tune(svm_param_grid, cross_val="k_fold")
+    eval_obj_emotion_svm.hyperparameter_tune(svm_param_grid, cross_val="k_fold", model_name="emotion_svm")
 
     # An example of using OneVsRestAudioFeatureSVM
     emotion_svm_ovr = OneVsRestAudioFeatureSVM()
     # Pass all labels for consistency, even if we only use emotion labels
     eval_obj_emotion_svm_ovr = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, emotion_svm_ovr, task="emotion")
-    eval_obj_emotion_svm_ovr.hyperparameter_tune(svm_param_grid, cross_val="holdout")
+    eval_obj_emotion_svm_ovr.hyperparameter_tune(svm_param_grid, cross_val="holdout", model_name="emotion_svm_ovr")
 
     # ____________________________________________
     #          SVM training (intensity)
@@ -122,7 +125,7 @@ if __name__ == "__main__":
     intensity_svm = AudioFeatureSVM()
     # Pass all labels for consistency, even if we only use emotion labels
     eval_obj_intensity_svm = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, intensity_svm, task="intensity")
-    eval_obj_intensity_svm.hyperparameter_tune(svm_param_grid, cross_val="k_fold")
+    eval_obj_intensity_svm.hyperparameter_tune(svm_param_grid, cross_val="k_fold", model_name="intensity_svm")
 
     # ____________________________________________
     #         Final test set evaluation

@@ -125,6 +125,7 @@ class MultiheadEmotionCNN(nn.Module):
                 "Model has not yet been trained, call fit() first."
             )
         self.eval()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         x = x.to(self.device)
         with torch.no_grad():
             emotion_logits, intensity_logits = self(x)
@@ -244,7 +245,7 @@ class MultiheadEmotionCNN(nn.Module):
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Model file {file_path} does not exist.")
 
-        model = torch.load(file_path, map_location=torch.device("cpu"))
+        model = torch.load(file_path, map_location=torch.device("cpu"), weights_only=False)
 
         if not isinstance(model, MultiheadEmotionCNN):
             raise TypeError(

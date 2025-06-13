@@ -14,6 +14,8 @@ from tqdm import tqdm
 import random as rnd
 import heapq
 import math
+import joblib
+import os
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -472,6 +474,15 @@ class TrainAndEval():
         spec_train_flat = train_features.reshape(train_features.shape[0], -1)
         self.pca = PCA(n_components=200, random_state=self.seed)
         spec_train_reduced = self.pca.fit_transform(spec_train_flat)
+        file_path = os.path.dirname(os.path.dirname(__file__))
+        if isinstance(self.model, OneVsRestAudioFeatureSVM):
+            joblib.dump(self.pca, os.path.join(file_path, "data", f"pca_emotion_svm_ovr.joblib"))
+        elif self.task == "emotion":
+            joblib.dump(self.pca, os.path.join(file_path, "data", f"pca_emotion_svm.joblib"))
+        elif self.task == "intensity":
+            joblib.dump(self.pca, os.path.join(file_path, "data", f"pca_intensity_svm.joblib"))
+        else:
+            raise ValueError("Unknown task type: must be 'emotion' or 'intensity'")
 
         # Train SVM for the current task
         if isinstance(self.model, OneVsRestAudioFeatureSVM):
@@ -604,7 +615,6 @@ class TrainAndEval():
 
             val_scores.append((i, val_score))
         print(f"Best validation score: {self.best_score} with parameters: {self.best_params}")
-
 
 
         return val_scores
