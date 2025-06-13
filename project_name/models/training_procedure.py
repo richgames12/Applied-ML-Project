@@ -605,17 +605,17 @@ class TrainAndEval():
             if val_score > self.best_score:
                 self.best_score = val_score
                 self.best_params = params
+                # Retrain best model on all training data
+                print("Retraining best model on all training data...")
+                self.train_no_split()
+                if model_name is not None:
+                    # Save the best model
+                    print(f"Saving best model to {model_name}.")
+                    self.model.save("best_model")
 
             val_scores.append((i, val_score))
         print(f"Best validation score: {self.best_score} with parameters: {self.best_params}")
 
-        # Retrain best model on all training data
-        print("Retraining best model on all training data...")
-        self.train_no_split()
-        if model_name is not None:
-            # Save the best model
-            print(f"Saving best model to {model_name}.")
-            self.model.save(model_name)
 
         return val_scores
 
