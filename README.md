@@ -8,6 +8,19 @@
 ```bash
     $python -m pip install -r requirements.txt
 ```
+
+- Make sure to install the appropriate version of PyTorch for your system.
+
+  - **For CUDA 12.1 (NVIDIA GPU):**
+    ```bash
+    $python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
+    ```
+
+  - **For CPU-only (no GPU):**
+    ```bash
+    $python -m pip install torch
+    ```
+
 - Third download the dataset
 ```bash
     $python download_dataset.py
@@ -18,7 +31,7 @@
 ```
 - Fifth start up the API
 ```bash
-    $uvicorn app:app --reload
+    uvicorn app:app --reload
 ```
 - Then control click on http://127.0.0.1:8000 to go to the page.
 From there press choose files and then choose some wav files from the ravdess-audio that was downloaded into project_name/data and press submit and back to home.
@@ -29,7 +42,18 @@ From there press choose files and then choose some wav files from the ravdess-au
 
 - Now press predict to get the predictions of your audio.
 
+# Docker instructions
 
+- First, install Docker Desktop (for Windows/Mac) or Docker Engine (for Linux).
+- Then build the docker container
+```bash
+    docker build -t your-image-name .
+```
+- When the container has been build, run the container.
+```bash
+    docker run -p 8000:8000 your-image-name
+```
+- Replace `your-image-name` with any name you like for your image.
 
 # Below is for contributors only
 

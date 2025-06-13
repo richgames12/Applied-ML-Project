@@ -100,3 +100,34 @@ class ModelEvaluator:
 
         # 2 Plot Confusion Matrix
         self._plot_confusion_matrix(labels_true, labels_pred, title_suffix)
+
+    def evaluate_uncertainty_metrics(
+        self,
+        class_probabilities: np.ndarray,
+        title_suffix: str = ""
+    ) -> None:
+        """
+        Calculate and print average entropy and confidence for model preds.
+
+        Args:
+            class_probabilities (np.ndarray): The predicted class probabilities
+                of shape (n_samples, n_classes).
+            title_suffix (str, optional): A suffix to add to the print
+                statements. Defaults to "".
+        """
+        # Use a small epsilon to prevent log(0)
+        epsilon = 1e-10
+
+        # Calculate entropy for each sample
+        entropy_per_sample = -np.sum(
+            class_probabilities * np.log(class_probabilities + epsilon), axis=1
+        )
+        average_entropy = np.mean(entropy_per_sample)
+
+        # Calculate confidence for each sample
+        confidence_per_sample = np.max(class_probabilities, axis=1)
+        average_confidence = np.mean(confidence_per_sample)
+
+        # Print the average entropy and confidence
+        print(f"Average entropy {title_suffix}: {average_entropy:.4f}")
+        print(f"Average confidence {title_suffix}: {average_confidence:.4f}")

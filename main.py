@@ -1,131 +1,159 @@
 from download_dataset import DATASET_DIR
 from project_name.data.data_file_splitting import DataFileSplitter
 from project_name.data.data_preprocessing import AudioPreprocessor
-from project_name.data.data_augmentation import RawAudioAugmenter
-from project_name.features.audio_feature_extractor import AudioFeatureExtractor
+from project_name.data.data_augmentation import SpectrogramAugmenter
 from project_name.models.audio_feature_svm import AudioFeatureSVM
-from sklearn.multiclass import OneVsRestClassifier
-from project_name.evaluation.model_evaluation import ModelEvaluator
+from project_name.models.one_vs_rest import OneVsRestAudioFeatureSVM
+from project_name.models.spectrogram_cnn import MultiheadEmotionCNN
+from project_name.models.training_procedure import TrainAndEval
+import torch
 
 import numpy as np
 import random
 
-EMOTION_LABELS = {
-    1: 'neutral', 2: 'calm', 3: 'happy', 4: 'sad',
-    5: 'angry', 6: 'fearful', 7: 'disgust', 8: 'surprised'
-}
-INTENSITY_LABELS = {0: 'normal', 1: 'strong'}
-
+N_SPEC_AUGMENTATIONS = 3
 
 if __name__ == "__main__":
+    print(torch.cuda.is_available())
     seed = None
     # Some classes also use a seed to control sklearn random processes
     np.random.seed(seed)
     random.seed(seed)
 
+    # Toggle evaluation
+    evaluate_mfcc = True
+    evaluate_spec = True
     # ____________________________________________
-    #                 Data Loading
+    #                 Data Loading (MFCC)
     # ____________________________________________
     # Initialize the data file splitter
-    splitter = DataFileSplitter(dataset_path=DATASET_DIR, seed=seed)
-    train_data, val_data, test_data = splitter.get_data_splits_copy()
+    splitter = DataFileSplitter(dataset_path=DATASET_DIR, test_size=0.1, seed=seed)
+    train_data, test_data = splitter.get_data_splits_copy()
 
     # ____________________________________________
-    #              Data Preprocessing
+    #         Spectrogram Preprocessing
     # ____________________________________________
-
-    # Initialize the raw audio augmenter
-    augmenter = RawAudioAugmenter(pitch_probability=0)
-
-    # Initialize the audio preprocessor
-    preprocessor = AudioPreprocessor(
-        data_augmenter=augmenter, n_augmentations=2
+    spectrogram_augmenter = SpectrogramAugmenter(
+        freq_mask_prob=0, time_mask_prob=0, noise_std=0.5
     )
 
-    # Process the training data
-    train_processed, train_emotion_labels, train_intensity_labels = \
-        preprocessor.process_all(train_data)
-    print("Training data processed.")
-
-    # Preprocess the test data
-    preprocessor.data_augmenter = None  # Test data should not be augmented
-    test_processed, test_emotion_labels, test_intensity_labels = \
-        preprocessor.process_all(test_data)
-    print("Test data processed.")
-
-    # ____________________________________________
-    #             Feature Extraction
-    # ____________________________________________
-
-    # Initialize the audio feature extractor
-    feature_extractor = AudioFeatureExtractor(use_deltas=True, n_mfcc=20)
-
-    # Extract features from the processed training data
-    train_features = feature_extractor.extract_features_all(train_processed)
-    print("Training features extracted.")
-
-    # Extract features from the processed test data
-    test_features = feature_extractor.extract_features_all(test_processed)
-    print("Test features extracted.")
-
-    # ____________________________________________
-    #               Model Training
-    # ____________________________________________
-
-    # Shuffle the data before training the SVM
-    indices = np.arange(len(train_features))
-    np.random.shuffle(indices)
-    train_features = train_features[indices]
-    train_emotion_labels = train_emotion_labels[indices]
-    train_intensity_labels = train_intensity_labels[indices]
-
-    # Initialize and train the SVM for emotion recognition
-    # Use a OneVsRest version to increase the models accuracy
-    base_emotion_svm = AudioFeatureSVM(
-        probability=True, regularization_parameter=10, seed=seed
+    # Initialize the spectrogram-based preprocessor
+    spectrogram_preprocessor = AudioPreprocessor(
+        spectrogram_augmenter=spectrogram_augmenter,
+        use_spectrograms=True,
+        n_augmentations=N_SPEC_AUGMENTATIONS
     )
 
-    base_intensity_svm = AudioFeatureSVM(
-        probability=False, regularization_parameter=10, seed=seed
+    # Process spectrogram-based training and test data
+    spec_train_data, spec_train_emotion_labels, spec_train_intensity_labels = \
+        spectrogram_preprocessor.process_all(train_data)
+
+    print("Spectrogram training data processed.")
+
+    # Convert labels to correct type (np.int64 → torch.long later)
+    # Otherwise, PyTorch will throw an error
+    spec_train_emotion_labels = spec_train_emotion_labels.astype(np.int64)
+    spec_train_intensity_labels = spec_train_intensity_labels.astype(np.int64)
+    all_labels = (spec_train_emotion_labels, spec_train_intensity_labels)
+
+    # _____________________________________________
+    #   Paramater Grids for Hyperparameter Tuning
+    # _____________________________________________
+    # This grid should be made automatically but this is a simple example
+    # More paramaters can be added but then it should also be adapted in the
+    # filter function of the TrainAndEval class and also be implemented in the CNN class
+    cnn_param_grid = [
+        {
+            "dropout_rate": 0.3,
+            "learning_rate": 1e-3,
+            "batch_size": 32,
+            "n_epoch": 20,
+        },
+        {
+            "dropout_rate": 0.5,
+            "learning_rate": 5e-4,
+            "batch_size": 64,
+            "n_epoch": 30,
+        },
+    ]
+    svm_param_grid = [
+        {"kernel": "linear", "regularization_parameter": 1.0, "max_iter": 10000},
+        {"kernel": "rbf", "regularization_parameter": 0.5, "gamma": 0.01, "max_iter": 10000},
+    ]
+
+
+    cnn_param_template = {
+            "dropout_rate": ["float_range", [0,1]],
+            "learning_rate": ["float_range", [0.0001,0.01]],
+            "batch_size": ["int_power_range", [2,1,5]],
+            "n_epoch": ["int_range", [1,10]],
+        }
+    # ____________________________________________
+    #    CNN training (emotion and intensity)
+    # ____________________________________________
+
+    multi_task_cnn = MultiheadEmotionCNN()
+    eval_obj_cnn = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, multi_task_cnn)
+    #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
+    eval_obj_cnn.evolutionary_hyper_search(cnn_param_template, model_name="spectrogram_cnn")
+    
+    #cnn_param_grid = eval_obj_cnn.generate_random_points(cnn_param_template, 20)
+    #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
+    #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout", model_name="spectrogram_cnn")
+
+    # ____________________________________________
+    #           SVM training (emotion)
+    # ____________________________________________
+
+    # An example of using AudioFeatureSVM
+    emotion_svm = AudioFeatureSVM()
+    # Pass all labels for consistency, even if we only use emotion labels
+    eval_obj_emotion_svm = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, emotion_svm, task="emotion")
+    eval_obj_emotion_svm.hyperparameter_tune(svm_param_grid, cross_val="k_fold", model_name="emotion_svm")
+
+    # An example of using OneVsRestAudioFeatureSVM
+    emotion_svm_ovr = OneVsRestAudioFeatureSVM()
+    # Pass all labels for consistency, even if we only use emotion labels
+    eval_obj_emotion_svm_ovr = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, emotion_svm_ovr, task="emotion")
+    eval_obj_emotion_svm_ovr.hyperparameter_tune(svm_param_grid, cross_val="holdout", model_name="emotion_svm_ovr")
+
+    # ____________________________________________
+    #          SVM training (intensity)
+    # ____________________________________________
+
+    # An example of using AudioFeatureSVM for intensity classification
+    intensity_svm = AudioFeatureSVM()
+    # Pass all labels for consistency, even if we only use emotion labels
+    eval_obj_intensity_svm = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, intensity_svm, task="intensity")
+    eval_obj_intensity_svm.hyperparameter_tune(svm_param_grid, cross_val="k_fold", model_name="intensity_svm")
+
+    # ____________________________________________
+    #         Final test set evaluation
+    # ____________________________________________
+
+    # Process test data
+    spectrogram_preprocessor.spectrogram_augmenter = None  # Disable augmentation for test set
+    spec_test_data, spec_test_emotion_labels, spec_test_intensity_labels = \
+        spectrogram_preprocessor.process_all(test_data)
+
+    # Adjust labels to start from 0
+    # Also convert labels to correct type (np.int64 will be torch.long later)
+    spec_test_emotion_labels = spec_test_emotion_labels.astype(np.int64) - 1
+    spec_test_intensity_labels = spec_test_intensity_labels.astype(np.int64) - 1
+
+    # CNN evaluation
+    eval_obj_cnn.evaluate_on_testset(
+        spec_test_data,
+        spec_test_emotion_labels,
+        spec_test_intensity_labels,
+        "spectrogram_cnn"
     )
 
-    print("Training Emotion SVM.")
-    multiclass_emotion_svm = OneVsRestClassifier(base_emotion_svm)
-    multiclass_emotion_svm.fit(train_features, train_emotion_labels)
-    print("Emotion SVM trained.")
+    # Emotion SVM evaluation
+    eval_obj_emotion_svm.evaluate_on_testset(spec_test_data, emotion_test_labels=spec_test_emotion_labels, title_suffix="Emotion SVM")
 
-    print("Training Intensity SVM.")
-    # Only two classes so no OneVsRest
-    base_intensity_svm.fit(train_features, train_intensity_labels)
-    print("Intensity SVM trained.")
+    # One-vs-Rest Emotion SVM evaluation
+    eval_obj_emotion_svm_ovr.evaluate_on_testset(spec_test_data, emotion_test_labels=spec_test_emotion_labels, title_suffix="One-vs-Rest Emotion SVM")
 
-    base_intensity_svm.save(model_name="intensity_svm.joblib")
-
-    # ____________________________________________
-    #              Model Evaluation
-    # ____________________________________________
-
-    if test_features.shape[0] > 0:
-        print("Evaluating Emotion Model")
-        pred_emotion_labels = multiclass_emotion_svm.predict(test_features)
-
-        # Initialize the emotion evaluator
-        emotion_evaluator = ModelEvaluator(class_labels=EMOTION_LABELS)
-        emotion_evaluator.evaluate_from_predictions(
-            labels_true=test_emotion_labels,
-            labels_pred=pred_emotion_labels,
-            title_suffix="Emotion Recognition SVM"
-        )
-
-        print("Evaluating Intensity Model")
-        pred_intesity_labels = base_intensity_svm.predict(test_features)
-
-        # Initialize the intensity evaluator
-        intensity_evaluator = ModelEvaluator(class_labels=INTENSITY_LABELS)
-        intensity_evaluator.evaluate_from_predictions(
-            labels_true=test_intensity_labels,
-            labels_pred=pred_intesity_labels,
-            title_suffix="Intensity Recognition SVM"
-        )
-    else:
-        print("No test data available for evaluation.")
+    # Intensity SVM evaluation
+    eval_obj_intensity_svm.evaluate_on_testset(spec_test_data, intensity_test_labels=spec_test_intensity_labels, title_suffix="Intensity SVM")

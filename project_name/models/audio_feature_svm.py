@@ -1,4 +1,5 @@
 from sklearn.svm import SVC
+from scipy.special import softmax
 import numpy as np
 import joblib
 import os
@@ -14,6 +15,7 @@ class AudioFeatureSVM:
             regularization_parameter: float = 1.0,
             gamma: str = "scale",
             probability: bool = False,
+            max_iter: int = -1,
             seed: int | None = None
     ) -> None:
         """
@@ -26,16 +28,22 @@ class AudioFeatureSVM:
                 parameter to be used. Defaults to 1.0.
             gamma (str, optional): The kernel coefficient to be used. Defaults
                 to "scale".
-            probability (bool, optional): Whether to support probabilities
-                over hard class predictions. Is only needed when using
-                OneVsRest. Defaults to False
+            probability: (bool, optional): If set to True, the model
+                will be trained with probability=True for the underlying SVC,
+                allowing access to Platt-scaled probabilities (slower
+                training). If False, training is faster, and predict_proba
+                will return softmax-transformed decision scores. Defaults to
+                False.
+            max_iter (int, optional): The maximum number of iterations for the
+                underlying SVC. Defaults to -1, which means no limit.
             seed (int | None, optional): The seed for sklearn functions.
                 Defaults to None.
         """
         self.kernel = kernel
         self.regularization_parameter = regularization_parameter
         self.gamma = gamma
-        self._probability = probability  # Should not be changed
+        self.use_probabilities = probability
+        self.max_iter = max_iter
         self.seed = seed
         self.type = "SVM"
 
@@ -43,7 +51,8 @@ class AudioFeatureSVM:
             kernel=self.kernel,
             C=self.regularization_parameter,
             gamma=self.gamma,
-            probability=self._probability,
+            probability=self.use_probabilities,
+            max_iter=self.max_iter,
             random_state=self.seed
         )
         self._n_features = None
@@ -103,9 +112,29 @@ class AudioFeatureSVM:
         """
         return self._model.score(features, labels)
 
+    def decision_function(self, features: np.ndarray) -> np.ndarray:
+        """
+        Reroute the decision_function call to the underlying SVC model.
+        This is required for OneVsRestClassifier to work correctly when
+        predict() is called on it.
+        """
+        if self._n_features is None:
+            raise ValueError(
+                "Model has not yet been trained, call fit() first."
+            )
+        elif features.shape[1] != self._n_features:
+            raise ValueError(
+                f"Expected input with {self._n_features} features but got "
+                f"{features.shape[1]} features instead."
+            )
+
+        return self._model.decision_function(features)
+
     def predict_proba(self, features: np.ndarray) -> np.ndarray:
         """
-        Predict class probabilities for the given features.
+        Predict class probabilities for the given features by applying
+        softmax to the decision function scores. Or by calling the underlying
+        predict_proba method when use_probabilities is set to true.
 
         Args:
             features (np.ndarray): Feature matrix of shape
@@ -123,7 +152,26 @@ class AudioFeatureSVM:
                 f"Expected input with {self._n_features} features but got "
                 f"{features.shape[1]} features instead."
             )
-        return self._model.predict_proba(features)
+
+        if self.use_probabilities:
+            # Can only use if underlying model uses probabilities
+            return self._model.predict_proba(features)
+
+        else:
+            # Otherwise, use softmax on decision function (faster training)
+            decision_scores = self.decision_function(features)
+
+            if decision_scores.ndim == 1:
+                # Need two scores when using binary classification.
+                # To get 2D for softmax, we can use [-score, score]
+                decision_scores_2d = np.column_stack(
+                    [-decision_scores, decision_scores]
+                )
+            else:
+                # For multi-class classification it is already 2D.
+                decision_scores_2d = decision_scores
+            softmax_probs = softmax(decision_scores_2d, axis=1)
+            return softmax_probs
 
     def get_params(self, deep=True) -> dict:
         """
@@ -140,7 +188,8 @@ class AudioFeatureSVM:
             "kernel": self.kernel,
             "regularization_parameter": self.regularization_parameter,
             "gamma": self.gamma,
-            "probability": self._probability,
+            "probability": self.use_probabilities,
+            "max_iter": self.max_iter,
             "seed": self.seed
         }
 
@@ -161,12 +210,13 @@ class AudioFeatureSVM:
             kernel=self.kernel,
             C=self.regularization_parameter,
             gamma=self.gamma,
-            probability=self._probability,
+            probability=self.use_probabilities,
+            max_iter=self.max_iter,
             random_state=self.seed
         )
         return self
 
-    def save(self, model_name: str = "audio_svm.joblib") -> None:
+    def save(self, model_name: str = "audio_svm") -> None:
         """
         Save a trained AudioFeatureSVM model.
 
@@ -184,7 +234,7 @@ class AudioFeatureSVM:
             # Only create the folder if it does not yet exist
             os.makedirs(folder)
 
-        filepath = os.path.join(folder, model_name)
+        filepath = os.path.join(folder, f"{model_name}.joblib")
 
         # Save the whole class instance in the folder
         joblib.dump(self, filepath)
