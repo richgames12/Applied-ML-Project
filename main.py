@@ -95,7 +95,7 @@ if __name__ == "__main__":
     multi_task_cnn = MultiheadEmotionCNN()
     eval_obj_cnn = TrainAndEval(spec_train_data, all_labels, N_SPEC_AUGMENTATIONS, multi_task_cnn)
     #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")
-    eval_obj_cnn.evolutionary_hyper_search(cnn_param_template)
+    eval_obj_cnn.evolutionary_hyper_search(cnn_param_template, model_name="spectrogram_cnn")
     
     #cnn_param_grid = eval_obj_cnn.generate_random_points(cnn_param_template, 20)
     #eval_obj_cnn.hyperparameter_tune(cnn_param_grid, "holdout")

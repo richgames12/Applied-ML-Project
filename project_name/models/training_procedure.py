@@ -611,7 +611,7 @@ class TrainAndEval():
                 if model_name is not None:
                     # Save the best model
                     print(f"Saving best model to {model_name}.")
-                    self.model.save("best_model")
+                    self.model.save(model_name)
 
             val_scores.append((i, val_score))
         print(f"Best validation score: {self.best_score} with parameters: {self.best_params}")
@@ -619,11 +619,19 @@ class TrainAndEval():
 
         return val_scores
 
-    def evolutionary_hyper_search(self, param_template: dict[list[list]], cross_val="k_fold", n: int = 5, pop_size: int = 30, repro_rate: int = 0.5):
+    def evolutionary_hyper_search(
+        self,
+        param_template: dict[list[list]],
+        cross_val="k_fold",
+        n: int = 5,
+        pop_size: int = 30,
+        repro_rate: int = 0.5,
+        model_name: str | None = "best_model"
+    ):
         population = self.generate_random_points(param_template, pop_size)
 
         for _ in range(n):
-            fitness_scores = self.hyperparameter_tune(population)
+            fitness_scores = self.hyperparameter_tune(population, cross_val=cross_val, model_name=model_name)
             n_best = int(repro_rate * pop_size)
             fittest_dictionaries_idx = heapq.nlargest(n_best, fitness_scores, key=lambda x: x[1])
             fittest_dictionaries = [population[i[0]] for i in fittest_dictionaries_idx]
